@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
     printf("\r\nFAT32 Filesystem Test");
     printf("\r\n-----------------------");
     tf_init();
-
+/*
     // BASIC WRITE, Root directory, LFN
     printf("\r\n[TEST] Basic LFN write test ") ;
     if(rc = test_basic_write("/test_longfilename0.txt", "Hello, World!")) {
@@ -43,8 +43,11 @@ int main(int argc, char **argv) {
     // BASIC READ, Root directory, 8.3 filename
     if(rc = test_basic_read("/test0.txt", "Hello, World!")) {
         printf("\r\n[TEST] Basic 8.3 read test failed with error code 0x%x", rc) ;
-    }else { printf("\r\n[TEST] Basic 8.3 read test PASSED."); }
+    }else { printf("\r\n[TEST] Basic 8.3 read test PASSED."); }*/
     
+    tf_list_root();
+	tf_destroy();
+
     return 0;
 }
 

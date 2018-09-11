@@ -1,4 +1,4 @@
-CFLAGS = -g -fpack-struct
+CFLAGS = -g -fpack-struct -Wfatal-errors -DTF_DEBUG=1 -DDEBUG=1
 LIBS =
 LDFLAGS = 
 INCLUDES = ./src/include 

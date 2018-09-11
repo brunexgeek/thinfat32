@@ -60,6 +60,22 @@ typedef struct struct_TFStats {
 #define max(x,y)  (x>y)? x:y  
 #endif
 
+
+struct storage_device 
+{
+	FILE *pointer;
+	uint32_t currentSector;
+	uint8_t buffer[512 * 1];
+};
+
+
+struct storage_device *device_open(
+	struct storage_device *device,
+	const char *path );
+
+void device_close(
+	struct storage_device *device );
+
     
 // Ultimately, once the filesystem is checked for consistency, you only need a few
 // things to keep it up and running.  These are:
@@ -81,7 +97,7 @@ typedef struct struct_tfinfo {
     uint32_t currentSector;
     uint8_t sectorFlags;
     uint32_t rootDirectorySize;
-    uint8_t buffer[512];
+//    uint8_t buffer[512];
 } TFInfo;
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -117,8 +133,7 @@ typedef struct struct_TFFILE {
 #define TF_ATTR_UNUSED 0x80
 
 
-int read_sector(uint8_t *data, uint32_t blocknum);
-int write_sector(uint8_t *data, uint32_t blocknum);
+
 // New error codes
 #define TF_ERR_NO_ERROR 0
 #define TF_ERR_BAD_BOOT_SIGNATURE 1
@@ -132,6 +147,7 @@ int write_sector(uint8_t *data, uint32_t blocknum);
 
 // New backend functions
 int tf_init(void);
+int tf_destroy(void);
 int tf_fetch(uint32_t sector);
 int tf_store(void);
 uint32_t tf_get_fat_entry(uint32_t cluster);

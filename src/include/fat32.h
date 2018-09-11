@@ -1,3 +1,5 @@
+#if 0
+
 #ifndef __FAT32_H
 #define __FAT32_H
 #include <stdlib.h>
@@ -64,7 +66,7 @@ typedef struct struct_BPBFAT1216_struct {
 } BPB1216_struct;
 
 // Starting at offset 36 into the BPB, this is the structure for a FAT32 FS
-typedef struct struct_BPBFAT32_struct { 
+typedef struct struct_BPBFAT32_struct {
 	unsigned int      FATSize;             // 4
 	unsigned short    ExtFlags;              // 2
 	unsigned short    FSVersion;             // 2
@@ -95,7 +97,7 @@ typedef struct struct_BPB_struct {
 	unsigned short    NumberOfHeads;         // 2
 	unsigned int      HiddenSectors;         // 4
 	unsigned int      TotalSectors32;        // 4
-	union { 
+	union {
 		BPB1216_struct fat16;
 		BPB32_struct fat32;
 	} FSTypeSpecificData;
@@ -154,7 +156,7 @@ typedef struct struct_FatFileLFN {
 	unsigned char checksum;       // Checksum of DOS Filename.  See Docs.
 	unsigned short name2[6];      // 6 More chars of name (UTF-16)
         unsigned short firstCluster;  // Always 0x0000
-	unsigned short name3[2];	
+	unsigned short name3[2];
 } FatFileLFN;
 
 typedef union struct_FatFileEntry {
@@ -170,10 +172,10 @@ int cluster_count(BPB_struct *bpb);
 int fat_type(BPB_struct *bpb);
 int first_data_sector(BPB_struct *bpb);
 int first_sector_of_cluster(BPB_struct *bpb, int N);
-int data_sectors(BPB_struct *bpb); 
+int data_sectors(BPB_struct *bpb);
 int fat_sector_number(BPB_struct *bpb, int N);
 int fat_entry_offset(BPB_struct *bpb, int N);
-int fat_entry_for_cluster(BPB_struct *bpb, unsigned char *buffer, int N); 
+int fat_entry_for_cluster(BPB_struct *bpb, unsigned char *buffer, int N);
 int read_sector(char *data, int blocknum);
 int write_sector(char *data, int blocknum);
 // New error codes
@@ -193,7 +195,7 @@ int tf_fetch(int sector);
 int tf_store();
 int tf_get_fat_entry(int cluster);
 int tf_set_fat_entry(int cluster, unsigned int value);
-int tf_unsafe_fseek(TFFile *fp, int base, long offset); 
+int tf_unsafe_fseek(TFFile *fp, int base, long offset);
 TFFile *tf_fnopen(char *filename, const char *mode, int n);
 int tf_free_clusterchain(int cluster);
 int tf_create(char *filename);
@@ -207,14 +209,16 @@ int tf_fclose(TFFile *fp);
 int tf_fread(char *dest,  int size,  TFFile *fp);
 int tf_find_file(TFFile *current_directory, char *name);
 int tf_compare_filename(TFFile *fp, char *name);
-int tf_first_sector(int cluster); 
+int tf_first_sector(int cluster);
 char *tf_walk(char *filename, TFFile *fp);
 TFFile *tf_fopen(char *filename, const char *mode);
 int tf_fwrite(void *src, int size, int count, TFFile *fp);
 int tf_fputs(char *src, TFFile *fp);
-unsigned int tf_find_free_cluster(); 
+unsigned int tf_find_free_cluster();
 
 // New Datas
 extern TFInfo tf_info;
 extern TFFile tf_file;
+#endif
+
 #endif
