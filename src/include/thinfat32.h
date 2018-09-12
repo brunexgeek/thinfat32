@@ -19,8 +19,11 @@
 
 #define TF_MARK_BAD_CLUSTER32 0x0ffffff7
 #define TF_MARK_BAD_CLUSTER16 0xfff7
-#define TF_MARK_EOC32 0x0ffffff8
-#define TF_MARK_EOC16 0xfff8
+#define TF_MARK_EOC32 0x0fffffff
+#define TF_MARK_EOC16 0xffff
+
+#define IS_BAD_CLUSTER_32(cluster)  ((cluster & 0x0FFFFFFF) == TF_MARK_BAD_CLUSTER32)
+#define IS_EOC_32(cluster)  ((cluster & 0x0FFFFFFF) == TF_MARK_EOC32)
 
 #define LFN_ENTRY_CAPACITY 13       // bytes per LFN entry
 
@@ -61,20 +64,20 @@ typedef struct struct_TFStats {
 #endif
 
 
+struct storage_buffer
+{
+    size_t size;
+    uint8_t *data;
+};
+
+
 struct storage_device 
 {
 	FILE *pointer;
 	uint32_t currentSector;
-	uint8_t buffer[512 * 1];
+    uint16_t sectorSize;
 };
 
-
-struct storage_device *device_open(
-	struct storage_device *device,
-	const char *path );
-
-void device_close(
-	struct storage_device *device );
 
     
 // Ultimately, once the filesystem is checked for consistency, you only need a few
@@ -98,6 +101,10 @@ typedef struct struct_tfinfo {
     uint8_t sectorFlags;
     uint32_t rootDirectorySize;
 //    uint8_t buffer[512];
+    uint8_t *buffer; // always the same size of the cluster
+    uint32_t *fat;
+    uint32_t cluster_count;
+    uint32_t clusterSize; // in bytes
 } TFInfo;
 
 /////////////////////////////////////////////////////////////////////////////////

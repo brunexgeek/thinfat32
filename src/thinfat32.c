@@ -4,6 +4,7 @@
 #include "thinfat32.h"
 #include "fat32_ui.h"
 #include "thinternal.h"
+#include <stdbool.h>
 
 
 TFInfo tf_info;
@@ -21,22 +22,24 @@ struct storage_device device;
 // USERLAND
 int device_read(
 	struct storage_device *device,
-	uint32_t sector )
+	uint32_t sector,
+    uint8_t *buffer )
 {
-	if (device == NULL || device->pointer == NULL) return 1;
-	fseek(device->pointer, sector * 512, 0);
-	fread(device->buffer, 1, 512, device->pointer);
+	if (device == NULL || buffer == NULL || buffer == NULL) return 1;
+	fseek(device->pointer, sector * device->sectorSize, 0);
+	fread(buffer, 1, device->sectorSize, device->pointer);
 	device->currentSector = sector;
 	return 0;
 }
 
 int device_write(
 	struct storage_device *device,
-	uint32_t sector )
+	uint32_t sector,
+    const uint8_t *buffer )
 {
-	if (device == NULL || device->pointer == NULL) return 1;
-	fseek(device->pointer, sector * 512, 0);
-	fwrite(device->buffer, 1, 512, device->pointer);
+	if (device == NULL || device->pointer == NULL || buffer == NULL) return 1;
+	fseek(device->pointer, sector * device->sectorSize, 0);
+	fwrite(buffer, 1, device->sectorSize, device->pointer);
 	device->currentSector = sector;
 	return 0;
 }
@@ -49,6 +52,7 @@ struct storage_device *device_open(
 	if (path == NULL || device == NULL) return NULL;
 	device->pointer = fopen(path, "r+b");
 	device->currentSector = 0xFFFFFFFF;
+    device->sectorSize = 512;
 }
 
 
@@ -61,6 +65,16 @@ void device_close(
 	device->currentSector = 0xFFFFFFFF;
 }
 
+
+struct storage_buffer *device_create_buffer(
+    struct storage_device *device )
+{
+    struct storage_buffer *buffer = malloc( sizeof(struct storage_buffer) + device->sectorSize );
+    if (buffer == NULL) return NULL;
+    buffer->size = device->sectorSize;
+    buffer->data = (uint8_t*) buffer + sizeof(struct storage_buffer);
+    return buffer;
+}
 
 
 //#define TF_DEBUG
@@ -101,7 +115,7 @@ int tf_fetch(uint32_t sector) {
     tf_stats.sector_reads += 1;
     #endif
     // Do the read, pass up the error flag
-    rc |= device_read(&device, sector );
+    rc |= device_read(&device, sector, tf_info.buffer );
     if(!rc) tf_info.currentSector = sector;
     return rc;
 }
@@ -113,10 +127,11 @@ int tf_fetch(uint32_t sector) {
  * RETURN
  *   the error code given by the users write_sector() (should be zero for NO ERROR, nonzero otherwise)
  */
-int tf_store() {
+int tf_store() 
+{
     dbg_printf("\r\n[DEBUG-tf_store] Writing sector (%d) to disk.", tf_info.currentSector);
     tf_info.sectorFlags &= ~TF_FLAG_DIRTY;
-    return device_write(&device, tf_info.currentSector);
+    return device_write(&device, tf_info.currentSector, tf_info.buffer);
 }
 
 /*
@@ -139,10 +154,15 @@ int tf_init()
     // Initialize the runtime portion of the TFInfo structure, and read sec0
     tf_info.currentSector = -1;
     tf_info.sectorFlags = 0;
-    tf_fetch(0);
+    tf_info.buffer = NULL;
+    uint8_t sectorData[512];
+    device_read(&device, 0, sectorData);
+    #ifdef TF_DEBUG
+    printBPB( (struct bpb*)sectorData );
+    #endif
 
     // Cast to a BPB, so we can extract relevant data
-    bpb = (struct bpb *) device.buffer;
+    bpb = (struct bpb *) sectorData;
 
     /* Some sanity checks to make sure we're really dealing with FAT here
      * see fatgen103.pdf pg. 9ff. for details */
@@ -188,12 +208,13 @@ int tf_init()
     tf_info.totalSectors      = (bpb->total_sectors_16 != 0) ? bpb->total_sectors_16 : bpb->total_sectors_32;
     data_sectors              = tf_info.totalSectors - bpb->reserved_sectors - (bpb->number_fats * fat_size) - root_dir_sectors;
     tf_info.sectorsPerCluster = bpb->sectors_per_cluster;
-    cluster_count             = data_sectors / bpb->sectors_per_cluster;
+    tf_info.cluster_count     = data_sectors / bpb->sectors_per_cluster;
     tf_info.reservedSectors   = bpb->reserved_sectors;
-    tf_info.firstDataSector    = bpb->reserved_sectors + (bpb->number_fats * fat_size) + root_dir_sectors;
+    tf_info.firstDataSector   = bpb->reserved_sectors + (bpb->number_fats * fat_size) + root_dir_sectors;
+    tf_info.clusterSize       = bpb->bytes_per_sector * bpb->sectors_per_cluster;
 
     // Now that we know the total count of clusters, we can compute the FAT type
-    if(cluster_count < 65525)
+    if(tf_info.cluster_count < 65525)
     {
         dbg_printf("  tf_init() FAILED: Invalid FAT32 (cluster count smaller than 65525)\r\n");
         return TF_ERR_BAD_FS_TYPE;
@@ -208,25 +229,20 @@ int tf_init()
 
     // TODO ADD SANITY CHECKING HERE (CHECK THE BOOT SIGNATURE, ETC... ETC...)
     tf_info.rootDirectorySize = 0xffffffff;
+    tf_info.buffer = (uint8_t*) malloc( tf_info.clusterSize );
     temp = 0;
 
-    // Like recording the root directory size!
-    // TODO, THis probably isn't necessary.  Remove later
-    fp = tf_fopen("/", "r");
-    do {
-        temp += sizeof(dentry_t);
-        tf_fread((uint8_t*)&e, sizeof(dentry_t), fp);
-    } while(e.msdos.name[0] != '\x00');
-    tf_fclose(fp);
-    tf_info.rootDirectorySize = temp;
-
-    dbg_printf("\r\n[DEBUG-tf_init] Size of root directory: %d bytes", tf_info.rootDirectorySize);
-    #ifdef TF_DEBUG
-    tf_fetch(0);
-    printBPB( (struct bpb*)device.buffer );
-    #endif
-    tf_fclose(fp);
-    tf_release_handle(fp);
+    // load FAT to memory
+    size_t bytesPerSector = bpb->bytes_per_sector;
+    bpb == NULL;
+    tf_info.fat = (uint32_t*) malloc( fat_size * bytesPerSector );
+    for (size_t i = 0; i < fat_size; ++i)
+    {
+        device_read(&device, tf_info.reservedSectors + i, sectorData);
+        memcpy( (uint8_t*) tf_info.fat + i * bytesPerSector, sectorData, bytesPerSector);
+    }
+    dbg_printf("Read %d sectors from FAT\n", fat_size);
+    
     dbg_printf("\r\ntf_init() successful...\r\n");
     return 0;
 }
@@ -237,34 +253,140 @@ int tf_destroy(void)
 }
 
 
-int tf_list_dentry( uint32_t sector )
+int tf_read_cluster(
+    struct storage_device *device,
+    uint32_t cluster,
+    uint8_t *buffer,
+    size_t size )
 {
-    tf_fetch(sector);
+    if (device == NULL || buffer == NULL || size != tf_info.clusterSize) return 1;
+    
+    uint32_t sector = FIRST_SECTOR(tf_info, cluster);
 
-    union dentry *entries = (union dentry *) device.buffer;
+    size_t i = 0;
+    for (; i < tf_info.clusterSize / 512; ++i)
+    {
+        device_read(device, sector + i, buffer + i * 512);
+    }
 
-    for (size_t i = 0; i < 512/32; ++i)
+    dbg_printf("Read cluster #%d (%d sectors from sector #%d)\n", cluster, i, sector);
+
+    return 0;
+}
+
+
+int tf_next_cluster(
+    uint32_t cluster,
+    uint32_t *next )
+{
+    cluster = (uint32_t) (cluster & 0x0FFFFFFF);
+
+    if (cluster < 2 || cluster >= TF_MARK_BAD_CLUSTER32) return 1;
+    
+    // cluster index starts from 2
+    cluster -= 2; 
+    if (cluster >= tf_info.cluster_count) return 1;
+
+    return tf_info.fat[cluster];
+}
+
+
+/**
+ * Retrieve a file name from a LFN directory entriy.
+ * 
+ */
+int tf_parse_lfn( 
+    union dentry *dentry, 
+    char *buffer )
+{
+    if (buffer == NULL) return 1;
+
+    int offset = 0;
+
+    if ((dentry->lfn.sequence_number & 0xF0) != 0x40)
+        offset = strlen(buffer);
+
+    for (int i = sizeof(dentry->lfn.name3) / sizeof(uint16_t) - 1; offset < 255 && i >= 0; --i)
+        if (dentry->lfn.name3[i] != 0 && dentry->lfn.name3[i] != 0xFFFF)
+            buffer[offset++] = dentry->lfn.name3[i] & 0x00FF;
+    for (int i = sizeof(dentry->lfn.name2) / sizeof(uint16_t) - 1; offset < 255 && i >= 0; --i)
+        if (dentry->lfn.name2[i] != 0 && dentry->lfn.name2[i] != 0xFFFF)
+            buffer[offset++] = dentry->lfn.name2[i] & 0x00FF;
+    for (int i = sizeof(dentry->lfn.name1) / sizeof(uint16_t) - 1; offset < 255 && i >= 0; --i)
+        if (dentry->lfn.name1[i] != 0 && dentry->lfn.name1[i] != 0xFFFF)
+            buffer[offset++] = dentry->lfn.name1[i] & 0x00FF;
+
+    buffer[offset] = 0;
+
+    if ((dentry->lfn.sequence_number & 0x0F) == 1)
+    {
+        for (size_t i = 0, t = strlen(buffer); i < t / 2; ++i)
+        {
+            char c = buffer[i];
+            buffer[i] = buffer[t - 1 - i];
+            buffer[t - 1 - i] = c;
+        }
+    }
+
+//dbg_printf("LFN #%d: %s\n", dentry->lfn.sequence_number & 0x0F, buffer);
+
+    return 0;
+}
+
+
+int tf_list_dentry( uint32_t cluster, const char *parent )
+{
+    uint8_t *buffer = (uint8_t*) malloc( tf_info.clusterSize );
+    if (tf_read_cluster(&device, cluster, buffer, tf_info.clusterSize) != 0) return 1;
+
+    union dentry *entries = (union dentry *) buffer;
+    char fileName[256];
+    bool complete = false;
+
+    for (size_t i = 0; i < tf_info.clusterSize / 32; ++i)
     {
         if (entries[i].msdos.name[0] == 0) break;
+        // skip the volume ID inside root directory
+        if (entries[i].msdos.attributes != ATTR_LONG_NAME && entries[i].msdos.attributes & ATTR_VOLUME_ID) continue;
 
-        if (entries[i].msdos.attributes & 0x10)
+        if (entries[i].msdos.attributes == ATTR_LONG_NAME)
         {
-            if (entries[i].msdos.name[0] == '.') continue;
-            printf("-- %.*s [DIR] \n", 8 + 3, entries[i].msdos.name);
-            uint32_t next = (uint32_t) ((entries[i].msdos.first_cluster_hi << 16) | entries[i].msdos.first_cluster_lo );
-            tf_list_dentry( FIRST_SECTOR(tf_info, next) );
-            tf_fetch(sector);
+            tf_parse_lfn(entries +i, fileName);
         }
         else
-        if (entries[i].msdos.attributes != 0x0F)
-            printf("-- %.*s (0x%x)\n", 8 + 3, entries[i].msdos.name);
+        {
+            if (fileName[0] == '.' || entries[i].msdos.name[0] == '.') continue;
+            // print file name
+            if (fileName[0] != 0)
+                printf("%s/%s\n", parent, fileName);
+            else
+                printf("%s/%.*s\n", parent, 8 + 3, entries[i].msdos.name);
+
+            // if the current entry is a directory, recusively list its files
+            if (entries[i].msdos.attributes & ATTR_DIRECTORY)
+            {
+                if (entries[i].msdos.name[0] == '.') continue;
+
+                char current[256] = { 0 };
+                strcpy(current, parent);
+                strcat(current, "/");
+                strcat(current, fileName);
+
+                uint32_t next = (uint32_t) ((entries[i].msdos.first_cluster_hi << 16) | entries[i].msdos.first_cluster_lo );
+                tf_list_dentry(next, current);
+            }
+
+            fileName[0] = 0;
+        }
     }
+
+    free(buffer);
 }
 
 
 int tf_list_root()
 {
-    tf_list_dentry(FIRST_SECTOR(tf_info, 2));
+    tf_list_dentry(2, "");
 }
 
 
@@ -282,7 +404,7 @@ uint32_t tf_get_fat_entry(uint32_t cluster) {
     uint32_t offset=cluster*4;
     tf_fetch(tf_info.reservedSectors + (offset/512)); // 512 is hardcoded bpb->bytesPerSector
     tf_printf("\r\n        [DEBUG-tf_get_fat_entry] done");
-    return *((uint32_t *) &(device.buffer[offset % 512]));
+    return *((uint32_t *) &(tf_info.buffer[offset % 512]));
 }
 
 /*
@@ -303,9 +425,9 @@ int tf_set_fat_entry(uint32_t cluster, uint32_t value) {
     tf_printf("\r\n        [DEBUG-tf_set_fat_entry] %x  %x ", cluster, value);
     offset=cluster*4; // FAT32
     rc = tf_fetch(tf_info.reservedSectors + (offset/512)); // 512 is hardcoded bpb->bytesPerSector
-    if (*((uint32_t *) &(device.buffer[offset % 512])) != value) {
+    if (*((uint32_t *) &(tf_info.buffer[offset % 512])) != value) {
         tf_info.sectorFlags |= TF_FLAG_DIRTY; // Mark this sector as dirty
-        *((uint32_t *) &(device.buffer[offset % 512])) = value;
+        *((uint32_t *) &(tf_info.buffer[offset % 512])) = value;
     }
     tf_printf("\r\n        [DEBUG-tf_set_fat_entry] done");
     return rc;
@@ -1300,8 +1422,8 @@ int tf_fread(uint8_t *dest, int size, TFFile *fp) {
         //sector = tf_first_sector(fp->currentCluster) + (fp->currentByte / 512);
         sector = FIRST_SECTOR(tf_info, fp->currentCluster) + (fp->currentByte / 512);
         tf_fetch(sector);       // wtfo?  i know this is cached, but why!?
-        //printHex(&device.buffer[fp->currentByte % 512], 1);
-        *dest++ = device.buffer[fp->currentByte % 512];
+        //printHex(&tf_info.buffer[fp->currentByte % 512], 1);
+        *dest++ = tf_info.buffer[fp->currentByte % 512];
         size--;
         if(fp->attributes & TF_ATTR_DIRECTORY) {
             //dbg_printf("READING DIRECTORY");
@@ -1331,16 +1453,16 @@ int tf_fwrite(uint8_t *src, int size, int count, TFFile *fp) {
 
             tf_printf("\r\nfwrite1: cB:%x   pos: %x    tracking:%x   i/512: %x   fp->size: %x   fp->pos: %x\r\n",
                    fp->currentByte, fp->pos, tracking, (i<512 ? i:512), fp->size, fp->pos);
-            tf_printHex(device.buffer, 512);
+            tf_printHex(tf_info.buffer, 512);
 
-            device.buffer[fp->currentByte % 512] = *((uint8_t *) src++);
+            tf_info.buffer[fp->currentByte % 512] = *((uint8_t *) src++);
             tf_info.sectorFlags |= TF_FLAG_DIRTY; // Mark this sector as dirty
             i--;
             tf_printf("\r\nfwrite2: cB:%x   pos: %x    tracking:%x   i/512: %x   fp->size: %x   fp->pos: %x\r\n",
                    fp->currentByte, fp->pos, tracking, (i<512 ? i:512), fp->size, fp->pos);
 
             tf_printf("\r\n");
-            tf_printHex(device.buffer, 512);
+            tf_printHex(tf_info.buffer, 512);
 
             if(tf_unsafe_fseek(fp, 0, fp->pos +1)) {
                 return -1;
@@ -1356,9 +1478,9 @@ int tf_fwrite(uint8_t *src, int size, int count, TFFile *fp) {
 
             tf_printf("\r\nfwrite1: cB:%x   tracking:%x   i/512: %x   fp->size: %x   fp->pos: %x\r\n",
                    fp->currentByte, tracking, segsize, fp->size, fp->pos);
-            tf_printHex(device.buffer, 512);
+            tf_printHex(tf_info.buffer, 512);
 
-            memcpy( &device.buffer[ tracking ], src, segsize);
+            memcpy( &tf_info.buffer[ tracking ], src, segsize);
             tf_info.sectorFlags |= TF_FLAG_DIRTY; // Mark this sector as dirty
 
             if (fp->pos + segsize > fp->size)
@@ -1371,7 +1493,7 @@ int tf_fwrite(uint8_t *src, int size, int count, TFFile *fp) {
             tf_printf("\r\nfwrite2: cB:%x    tracking:%x   i/512: %x   fp->size: %x   fp->pos: %x\r\n",
                    fp->currentByte, tracking, segsize, fp->size, fp->pos);
             tf_printf("\r\n");
-            tf_printHex(device.buffer, 512);
+            tf_printHex(tf_info.buffer, 512);
 
             if(tf_unsafe_fseek(fp, 0, fp->pos + segsize)) {
                 return -1;

@@ -4,6 +4,14 @@
 #define false 0
 #define true 1
 
+#define ATTR_READ_ONLY      0x01              
+#define ATTR_HIDDEN         0x02
+#define ATTR_SYSTEM         0x04       
+#define ATTR_VOLUME_ID      0x08       
+#define ATTR_DIRECTORY      0x10       
+#define ATTR_ARCHIVE        0x20     
+#define ATTR_LONG_NAME      (ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID)
+
 #pragma pack(push, 1)
 
 // Starting at offset 36 into the BPB, this is the structure for a FAT12/16 FS
@@ -20,7 +28,7 @@ struct bpb_fat1x
 // Starting at offset 36 into the BPB, this is the structure for a FAT32 FS
 struct bpb_fat32
 {
-    uint32_t    fat_size_32;            // 4
+    uint32_t    fat_size_32;            // 4 (unit: sectors)
     uint16_t    flags;                  // 2
     uint16_t    version;                // 2
     uint32_t    root_cluster;           // 4
@@ -46,7 +54,7 @@ struct bpb
     uint16_t    root_entries;            // 2
     uint16_t    total_sectors_16;        // 2
     uint8_t     media;                   // 1
-    uint16_t    fat_size_16;             // 2
+    uint16_t    fat_size_16;             // 2  (unit: sectors)
     uint16_t    sectors_per_track;       // 2
     uint16_t    number_heads;            // 2
     uint32_t    hidden_sectors;          // 4
