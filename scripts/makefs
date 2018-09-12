@@ -24,14 +24,10 @@ case "$1" in
 		echo 'continuing'
 		;;
 	'populate')
-		cd fs
-		echo "Medium sized filename on this one." > thisisamidsizefilename.txt
-		mkdir subdir
-		echo "This is file A" > a.txt
-		echo "This is file B" > b.txt
-		echo "This is a long filename!" > subdir/this\ is\ a\ super\ long\ filename\ with\ spaces.txt
-		echo "Hello, World" > subdir/c.txt
+		$0 mount && sudo cp -r --copy-contents -L /etc/systemd/ ./fs/ && $0 unmount
 		;;
 	*)
 		echo "usage $0 make|mount|unmount|populate" ;;
 esac
+
+exit 0

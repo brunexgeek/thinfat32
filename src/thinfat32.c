@@ -237,20 +237,36 @@ int tf_destroy(void)
 }
 
 
-int tf_list_root()
+int tf_list_dentry( uint32_t sector )
 {
-    tf_fetch( FIRST_SECTOR(tf_info, 2) );
+    tf_fetch(sector);
 
     union dentry *entries = (union dentry *) device.buffer;
 
     for (size_t i = 0; i < 512/32; ++i)
     {
         if (entries[i].msdos.name[0] == 0) break;
-        
+
+        if (entries[i].msdos.attributes & 0x10)
+        {
+            if (entries[i].msdos.name[0] == '.') continue;
+            printf("-- %.*s [DIR] \n", 8 + 3, entries[i].msdos.name);
+            uint32_t next = (uint32_t) ((entries[i].msdos.first_cluster_hi << 16) | entries[i].msdos.first_cluster_lo );
+            tf_list_dentry( FIRST_SECTOR(tf_info, next) );
+            tf_fetch(sector);
+        }
+        else
         if (entries[i].msdos.attributes != 0x0F)
-            printf("-- %s (0x%x)\n", entries[i].msdos.name);
+            printf("-- %.*s (0x%x)\n", 8 + 3, entries[i].msdos.name);
     }
 }
+
+
+int tf_list_root()
+{
+    tf_list_dentry(FIRST_SECTOR(tf_info, 2));
+}
+
 
 /*
  * Return the FAT entry for the given cluster
