@@ -1,8 +1,8 @@
-#include "thinfat32.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "fat32_ui.h"
+#include <fat32.h>
+#include <fat32_ui.h>
 
 #define NO_ERROR 0
 #define FILE_OPEN_ERROR -1
@@ -15,14 +15,15 @@ int basic_read(char *input_fle, char *expected);
 int basic_write(char *input_file, char *write_string);
 int basic_append(char *input_file, char *write_string);
 
-int main(int argc, char **argv) {
-    TFFile *fp;
-    char data;
-    int rc;
+int main(int argc, char **argv)
+{
+    struct storage_device device;
+    device_open(&device, "test.fat32");
 
     printf("\r\nFAT32 Filesystem Test");
     printf("\r\n-----------------------");
-    tf_init();
+    struct fat32_descriptor desc;
+    fat32_mount(&desc, &device);
 /*
     // BASIC WRITE, Root directory, LFN
     printf("\r\n[TEST] Basic LFN write test ") ;
@@ -44,16 +45,20 @@ int main(int argc, char **argv) {
     if(rc = test_basic_read("/test0.txt", "Hello, World!")) {
         printf("\r\n[TEST] Basic 8.3 read test failed with error code 0x%x", rc) ;
     }else { printf("\r\n[TEST] Basic 8.3 read test PASSED."); }*/
-    
-    tf_list_root();
-	tf_destroy();
+
+    //tf_list_root();
+    fat32_list_root(&desc);
+	fat32_umount(&desc);
+    device_close(&device);
 
     return 0;
 }
 
+#if 0
+
 /*
  * Open a file, read its contents, if the contents match, return 0
- *If the contents don't match, or any other error occurs, return 
+ *If the contents don't match, or any other error occurs, return
  * an appropriate error code.
  */
 int test_basic_read(char *input_file, char *expected) {
@@ -92,7 +97,7 @@ int test_basic_write(char *input_file, char *write_string) {
     int rc;
 
     fp = tf_fopen(input_file, "w");
-    
+
     if(fp) {
         printf("\r\n[TEST] writing data to file: %s", write_string);
         rc = tf_fwrite(write_string, 1, strlen(write_string), fp);
@@ -104,7 +109,7 @@ int test_basic_write(char *input_file, char *write_string) {
             tf_fclose(fp);
             return NO_ERROR;
         }
-        
+
     }
     else {
         return FILE_OPEN_ERROR;
@@ -121,7 +126,7 @@ int test_basic_append(char *input_file, char *write_string) {
     int rc;
 
     fp = tf_fopen(input_file, "a");
-    
+
     if(fp) {
         rc = tf_fwrite(write_string, 1, strlen(write_string), fp);
         if(rc) {
@@ -132,9 +137,11 @@ int test_basic_append(char *input_file, char *write_string) {
             tf_fclose(fp);
             return NO_ERROR;
         }
-        
+
     }
     else {
         return FILE_OPEN_ERROR;
     }
 }
+
+#endif

@@ -5,6 +5,7 @@
 #include "fat32_ui.h"
 #include "thinternal.h"
 #include <stdbool.h>
+#include "device.h"
 
 
 TFInfo tf_info;
@@ -18,63 +19,6 @@ struct storage_device device;
 #define FIRST_SECTOR(fat32, cluster) \
     ( (cluster - 2) * (fat32).sectorsPerCluster + (fat32).firstDataSector )
 
-
-// USERLAND
-int device_read(
-	struct storage_device *device,
-	uint32_t sector,
-    uint8_t *buffer )
-{
-	if (device == NULL || buffer == NULL || buffer == NULL) return 1;
-	fseek(device->pointer, sector * device->sectorSize, 0);
-	fread(buffer, 1, device->sectorSize, device->pointer);
-	device->currentSector = sector;
-	return 0;
-}
-
-int device_write(
-	struct storage_device *device,
-	uint32_t sector,
-    const uint8_t *buffer )
-{
-	if (device == NULL || device->pointer == NULL || buffer == NULL) return 1;
-	fseek(device->pointer, sector * device->sectorSize, 0);
-	fwrite(buffer, 1, device->sectorSize, device->pointer);
-	device->currentSector = sector;
-	return 0;
-}
-
-
-struct storage_device *device_open(
-	struct storage_device *device,
-	const char *path )
-{
-	if (path == NULL || device == NULL) return NULL;
-	device->pointer = fopen(path, "r+b");
-	device->currentSector = 0xFFFFFFFF;
-    device->sectorSize = 512;
-}
-
-
-void device_close(
-	struct storage_device *device )
-{
-	if (device == NULL) return;
-	if (device->pointer != NULL) fclose(device->pointer);
-	device->pointer = NULL;
-	device->currentSector = 0xFFFFFFFF;
-}
-
-
-struct storage_buffer *device_create_buffer(
-    struct storage_device *device )
-{
-    struct storage_buffer *buffer = malloc( sizeof(struct storage_buffer) + device->sectorSize );
-    if (buffer == NULL) return NULL;
-    buffer->size = device->sectorSize;
-    buffer->data = (uint8_t*) buffer + sizeof(struct storage_buffer);
-    return buffer;
-}
 
 
 //#define TF_DEBUG
@@ -134,123 +78,7 @@ int tf_store()
     return device_write(&device, tf_info.currentSector, tf_info.buffer);
 }
 
-/*
- * Initialize the filesystem
- * Reads filesystem info from disk into tf_info and checks that info for validity
- * SIDE EFFECTS
- *   Sector 0 is fetched into tf_info.buffer
- *   If TF_DEBUG is specified tf_stats is initialized
- * RETURN
- *   0 for a successfully initialized filesystem, nonzero otherwise.
- */
-int tf_init()
-{
-	device_open(&device, "test.fat32");
-    struct bpb *bpb;
-    uint32_t fat_size, root_dir_sectors, data_sectors, cluster_count, temp;
-    TFFile *fp;
-    dentry_t e;
 
-    // Initialize the runtime portion of the TFInfo structure, and read sec0
-    tf_info.currentSector = -1;
-    tf_info.sectorFlags = 0;
-    tf_info.buffer = NULL;
-    uint8_t sectorData[512];
-    device_read(&device, 0, sectorData);
-    #ifdef TF_DEBUG
-    printBPB( (struct bpb*)sectorData );
-    #endif
-
-    // Cast to a BPB, so we can extract relevant data
-    bpb = (struct bpb *) sectorData;
-
-    /* Some sanity checks to make sure we're really dealing with FAT here
-     * see fatgen103.pdf pg. 9ff. for details */
-
-    /* BS_jmpBoot needs to contain specific instructions */
-    if (!(bpb->jump[0] == 0xEB && bpb->jump[2] == 0x90) && !(bpb->jump[0] == 0xE9))
-    {
-        dbg_printf("  tf_init FAILED: stupid jmp instruction isn't exactly right...");
-        return TF_ERR_BAD_FS_TYPE;
-    }
-
-    /* Only specific bytes per sector values are allowed
-     * FIXME: Only 512 bytes are supported by thinfat at the moment */
-    if (bpb->bytes_per_sector != 512)
-    {
-        dbg_printf("  tf_init() FAILED: Bad Filesystem Type (!=512 bytes/sector)\r\n");
-        return TF_ERR_BAD_FS_TYPE;
-    }
-
-    if (bpb->reserved_sectors == 0)
-    {
-        dbg_printf("  tf_init() FAILED: reserved_sectors == 0!!\r\n");
-        return TF_ERR_BAD_FS_TYPE;
-    }
-
-    /* Valid media types */
-    if ((bpb->media != 0xF0) && ((bpb->media < 0xF8) || (bpb->media > 0xFF)))
-    {
-        dbg_printf("  tf_init() FAILED: Invalid Media Type!  (0xf0, or 0xf8 <= type <= 0xff)\r\n");
-        return TF_ERR_BAD_FS_TYPE;
-    }
-
-    // for now only FAT32 is supported
-    if (bpb->fat_size_16 != 0 || bpb->fat_specific.fat32.fat_size_32 == 0 || bpb->total_sectors_16 != 0 || bpb->total_sectors_32 == 0)
-    {
-        dbg_printf("  tf_init() FAILED: Only FAT32 is supported\r\n");
-        return TF_ERR_BAD_FS_TYPE;
-    }
-
-    // See the FAT32 SPEC for how this is all computed
-    fat_size                  = (bpb->fat_size_16 != 0) ? bpb->fat_size_16 : bpb->fat_specific.fat32.fat_size_32;
-    root_dir_sectors          = ((bpb->root_entries*32) + (bpb->bytes_per_sector-1))/(bpb->bytes_per_sector);  // always zero for FAT32
-    tf_info.totalSectors      = (bpb->total_sectors_16 != 0) ? bpb->total_sectors_16 : bpb->total_sectors_32;
-    data_sectors              = tf_info.totalSectors - bpb->reserved_sectors - (bpb->number_fats * fat_size) - root_dir_sectors;
-    tf_info.sectorsPerCluster = bpb->sectors_per_cluster;
-    tf_info.cluster_count     = data_sectors / bpb->sectors_per_cluster;
-    tf_info.reservedSectors   = bpb->reserved_sectors;
-    tf_info.firstDataSector   = bpb->reserved_sectors + (bpb->number_fats * fat_size) + root_dir_sectors;
-    tf_info.clusterSize       = bpb->bytes_per_sector * bpb->sectors_per_cluster;
-
-    // Now that we know the total count of clusters, we can compute the FAT type
-    if(tf_info.cluster_count < 65525)
-    {
-        dbg_printf("  tf_init() FAILED: Invalid FAT32 (cluster count smaller than 65525)\r\n");
-        return TF_ERR_BAD_FS_TYPE;
-    }
-    else
-        tf_info.type = TF_TYPE_FAT32;
-
-    #ifdef TF_DEBUG
-    tf_stats.sector_reads = 0;
-    tf_stats.sector_writes = 0;
-    #endif
-
-    // TODO ADD SANITY CHECKING HERE (CHECK THE BOOT SIGNATURE, ETC... ETC...)
-    tf_info.rootDirectorySize = 0xffffffff;
-    tf_info.buffer = (uint8_t*) malloc( tf_info.clusterSize );
-    temp = 0;
-
-    // load FAT to memory
-    size_t bytesPerSector = bpb->bytes_per_sector;
-    bpb == NULL;
-    tf_info.fat = (uint32_t*) malloc( fat_size * bytesPerSector );
-    for (size_t i = 0; i < fat_size; ++i)
-    {
-        device_read(&device, tf_info.reservedSectors + i, sectorData);
-        memcpy( (uint8_t*) tf_info.fat + i * bytesPerSector, sectorData, bytesPerSector);
-    }
-    dbg_printf("Read %d sectors from FAT\n", fat_size);
-    
-    dbg_printf("\r\ntf_init() successful...\r\n");
-    return 0;
-}
-
-int tf_destroy(void)
-{
-	device_close(&device);
-}
 
 
 int tf_read_cluster(
@@ -381,13 +209,17 @@ int tf_list_dentry( uint32_t cluster, const char *parent )
     }
 
     free(buffer);
+    return 0;
 }
 
 
 int tf_list_root()
 {
-    tf_list_dentry(2, "");
+    return tf_list_dentry(2, "");
 }
+
+
+#if 0
 
 
 /*
@@ -2017,3 +1849,5 @@ void printHex( uint8_t* st, uint32_t length )
     while (length--)
         printf("%.2x", *st++);
 }
+
+#endif

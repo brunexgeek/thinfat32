@@ -1,14 +1,16 @@
-#include "thinfat32.h"
-#include "fat32_ui.h"
+#include <fat32_ui.h>
+#include <fat32.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// TODO: Reimplement this function correctly
-int fat_type(struct bpb *s)
+
+int fat_type( struct bpb *bpb)
 {
+	(void) bpb;
 	return TYPE_FAT32;
 }
+
 
 void printBPB(struct bpb *s) {
 	int i,j;
@@ -91,7 +93,7 @@ void print_sector(unsigned char *sector) {
 		printf(" %02x%02x%02x%02x %02x%02x%02x%02x        %c%c%c%c %c%c%c%c\n", sector[i], sector[i+1], sector[i+2], sector[i+3], sector[i+4], sector[i+5], sector[i+6], sector[i+7], sector[i], sector[i+1], sector[i+2], sector[i+3], sector[i+4], sector[i+5], sector[i+6], sector[i+7]);
 	}
 }
-
+#if 0
 void print_tf_info(TFInfo *t) {
 	printf("    TFInfo Structure\n    ----------------\n");
 	switch(t->type) {
@@ -120,12 +122,7 @@ void print_TFFile(TFFile *fp) {
 
 void print_FatFileEntry(dentry_t *entry) {
 	printf("    FatFile Structure\n    ---------------\n");
-	if(entry->msdos.attributes == 0x0f) {
-		print_FatFileLFN(&(entry->lfn));
-	}
-	else {
-		print_FatFile83(&(entry->msdos));
-	}
+	print_FatFile83(&(entry->msdos));
 }
 void print_FatFile83(struct short_name_dentry *entry) {
 	printf("         Type: 8.3 Filename\n");
@@ -136,7 +133,5 @@ void print_FatFile83(struct short_name_dentry *entry) {
 	printf("Creation Time: %d/%d/%d\n", ((entry->creation_date & 0xfe00) >> 9) + 1980, ((entry->creation_date & 0x1e0) >> 5), (entry->creation_date & 0xf)*2);
 }
 
+#endif
 
-void print_FatFileLFN(struct long_name_dentry *entry) {
-	printf("         Type: Long Filename (LFN)\n");
-}

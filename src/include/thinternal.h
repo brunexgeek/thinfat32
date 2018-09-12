@@ -66,7 +66,7 @@ struct bpb
     } fat_specific;
 };
 
-typedef struct short_name_dentry {
+struct short_name_dentry {
     uint8_t  name[8];
     uint8_t  extension[3];
     uint8_t  attributes;
@@ -82,7 +82,7 @@ typedef struct short_name_dentry {
     uint32_t size;
 };
 
-typedef struct long_name_dentry {
+struct long_name_dentry {
     uint8_t sequence_number;
     uint16_t name1[5];      // 5 Chars of name (UTF 16???)
     uint8_t attributes;     // Always 0x0f

@@ -1,3 +1,90 @@
+#ifndef MACHINA_FAT32_H
+#define MACHINA_FAT32_H
+
+
+#include <stdint.h>
+#include <device.h>
+
+
+#define TF_ERR_NO_ERROR 0
+#define TF_ERR_BAD_BOOT_SIGNATURE 1
+#define TF_ERR_BAD_FS_TYPE 2
+#define TF_ERR_INVALID_SEEK 1
+
+#define TF_TYPE_FAT16 0
+#define TF_TYPE_FAT32 1
+
+#define TYPE_FAT12 0
+#define TYPE_FAT16 1
+#define TYPE_FAT32 2
+
+#define TF_MARK_BAD_CLUSTER32 0x0ffffff7
+#define TF_MARK_EOC32 0x0fffffff
+
+#ifdef DEBUG
+
+#include <stdio.h>
+
+    #define dbg_printf(...) printf(__VA_ARGS__)
+    #define dbg_printHex(x,y) printHex(x,y)
+
+#ifdef TF_DEBUG
+typedef struct struct_TFStats {
+    unsigned long sector_reads;
+    unsigned long sector_writes;
+} TFStats;
+
+    #define tf_printf(...) printf(__VA_ARGS__)
+    #define tf_printHex(x,y) printHex(x,y)
+#else
+    #define tf_printf(...)
+    #define tf_printHex(x,y)
+#endif  // TF_DEBUG
+
+#else   // DEBUG
+    #define dbg_printf(...)
+    #define dbg_printHex(x,y)
+    #define tf_printf(...)
+    #define tf_printHex(x,y)
+#endif  // DEBUG
+
+
+struct fat32_descriptor
+{
+    // FILESYSTEM INFO PROPER
+    uint8_t type; // 0 for FAT16, 1 for FAT32.  FAT12 NOT SUPPORTED
+    uint8_t sectorsPerCluster;
+    uint32_t firstDataSector;
+    uint32_t totalSectors;
+    uint16_t reservedSectors;
+    // "LIVE" DATA
+    uint32_t currentSector;
+    uint8_t sectorFlags;
+    uint32_t rootDirectorySize;
+//    uint8_t buffer[512];
+    uint8_t *buffer; // always the same size of the cluster
+    uint32_t *fat;
+    uint32_t cluster_count;
+    uint32_t clusterSize; // in bytes
+
+	struct storage_device *device;
+};
+
+
+
+int fat32_mount(
+    struct fat32_descriptor *desc,
+    struct storage_device *device );
+
+int fat32_umount(
+	struct fat32_descriptor *desc );
+
+int fat32_list_root(
+    struct fat32_descriptor *desc );
+
+#endif
+
+
 #if 0
 
 #ifndef __FAT32_H

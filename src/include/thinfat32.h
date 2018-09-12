@@ -64,19 +64,7 @@ typedef struct struct_TFStats {
 #endif
 
 
-struct storage_buffer
-{
-    size_t size;
-    uint8_t *data;
-};
 
-
-struct storage_device 
-{
-	FILE *pointer;
-	uint32_t currentSector;
-    uint16_t sectorSize;
-};
 
 
     
@@ -89,7 +77,8 @@ struct storage_device
 //    * The number of reserved sectors (pulled directly from the BPB)
 // 4) The current sector in memory.  No sense reading it if it's already in memory!
 
-typedef struct struct_tfinfo {
+struct fat32_descriptor
+{
     // FILESYSTEM INFO PROPER
     uint8_t type; // 0 for FAT16, 1 for FAT32.  FAT12 NOT SUPPORTED
     uint8_t sectorsPerCluster;
@@ -105,11 +94,14 @@ typedef struct struct_tfinfo {
     uint32_t *fat;
     uint32_t cluster_count;
     uint32_t clusterSize; // in bytes
-} TFInfo;
+};
+
+
 
 /////////////////////////////////////////////////////////////////////////////////
 
-typedef struct struct_TFFILE {
+typedef struct struct_TFFILE 
+{
     uint32_t parentStartCluster;
     uint32_t startCluster;
     uint32_t currentClusterIdx;
@@ -194,8 +186,5 @@ uint32_t tf_initializeMediaNoBlock(uint32_t totalSectors, int start);
 TFFile *tf_get_free_handle();
 uint8_t upper(uint8_t c);
 
-// New Datas
-extern TFInfo tf_info;
-extern TFFile tf_file;
 
 #endif
