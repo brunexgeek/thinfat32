@@ -216,50 +216,30 @@ static int fat32_list_dentry(
     uint32_t cluster,
     const char *parent )
 {
-    uint8_t *buffer = (uint8_t*) malloc( desc->clusterSize );
-    if (fat32_read_cluster(desc, cluster, buffer, desc->clusterSize) != 0) return 1;
+    struct dentry_iterator it;
+    fat32_create_iterator(&it, desc, cluster);
 
-    union dentry *entries = (union dentry *) buffer;
-    char fileName[256];
+    union dentry *dentry = NULL;
+    char *fileName = NULL;
 
-    for (size_t i = 0; i < desc->clusterSize / 32; ++i)
+    while (fat32_iterate(&it, &dentry, &fileName) == 0)
     {
-        if (entries[i].msdos.name[0] == 0) break;
-        // skip the volume ID inside root directory
-        if (entries[i].msdos.attributes != ATTR_LONG_NAME && entries[i].msdos.attributes & ATTR_VOLUME_ID) continue;
+        dbg_printf("%s/%s\n", parent, fileName);
 
-        if (entries[i].msdos.attributes == ATTR_LONG_NAME)
+        // if the current entry is a directory, recusively list its files
+        if (dentry->msdos.attributes & ATTR_DIRECTORY)
         {
-            fat32_parse_lfn(entries +i, fileName);
-        }
-        else
-        {
-            if (fileName[0] == '.' || entries[i].msdos.name[0] == '.') continue;
-            // print file name
-            if (fileName[0] != 0)
-                printf("%s/%s\n", parent, fileName);
-            else
-                printf("%s/%.*s\n", parent, 8 + 3, entries[i].msdos.name);
+            char current[256] = { 0 };
+            strcpy(current, parent);
+            strcat(current, "/");
+            strcat(current, fileName);
 
-            // if the current entry is a directory, recusively list its files
-            if (entries[i].msdos.attributes & ATTR_DIRECTORY)
-            {
-                if (entries[i].msdos.name[0] == '.') continue;
-
-                char current[256] = { 0 };
-                strcpy(current, parent);
-                strcat(current, "/");
-                strcat(current, fileName);
-
-                uint32_t next = (uint32_t) ((entries[i].msdos.first_cluster_hi << 16) | entries[i].msdos.first_cluster_lo );
-                fat32_list_dentry(desc, next, current);
-            }
-
-            fileName[0] = 0;
+            uint32_t next = (uint32_t) ((dentry->msdos.first_cluster_hi << 16) | dentry->msdos.first_cluster_lo );
+            fat32_list_dentry(desc, next, current);
         }
     }
 
-    free(buffer);
+    fat32_destroy_iterator(&it);
     return 0;
 }
 

@@ -48,8 +48,12 @@ int main(int argc, char **argv)
 
     //tf_list_root();
     //fat32_list_root(&desc);
-    struct fat32_dentry dentry;
-    fat32_lookup(&desc, "/systemd/test.conf", &dentry);
+
+    /*struct fat32_dentry dentry;
+    fat32_lookup(&desc, "/systemd/test.conf", &dentry);*/
+
+    fat32_list_root(&desc);
+
 	fat32_umount(&desc);
     device_close(&device);
 
