@@ -4,13 +4,14 @@
 #define false 0
 #define true 1
 
-#define ATTR_READ_ONLY      0x01              
+#define ATTR_READ_ONLY      0x01
 #define ATTR_HIDDEN         0x02
-#define ATTR_SYSTEM         0x04       
-#define ATTR_VOLUME_ID      0x08       
-#define ATTR_DIRECTORY      0x10       
-#define ATTR_ARCHIVE        0x20     
+#define ATTR_SYSTEM         0x04
+#define ATTR_VOLUME_ID      0x08
+#define ATTR_DIRECTORY      0x10
+#define ATTR_ARCHIVE        0x20
 #define ATTR_LONG_NAME      (ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID)
+
 
 #pragma pack(push, 1)
 
@@ -66,37 +67,6 @@ struct bpb
     } fat_specific;
 };
 
-struct short_name_dentry {
-    uint8_t  name[8];
-    uint8_t  extension[3];
-    uint8_t  attributes;
-    uint8_t  reserved;
-    uint8_t  creation_time_tenth;
-    uint16_t creation_time;
-    uint16_t creation_date;
-    uint16_t last_access_time;
-    uint16_t first_cluster_hi;
-    uint16_t write_time;
-    uint16_t write_date;
-    uint16_t first_cluster_lo;
-    uint32_t size;
-};
-
-struct long_name_dentry {
-    uint8_t sequence_number;
-    uint16_t name1[5];      // 5 Chars of name (UTF 16???)
-    uint8_t attributes;     // Always 0x0f
-    uint8_t reserved;       // Always 0x00
-    uint8_t checksum;       // Checksum of DOS Filename.  See Docs.
-    uint16_t name2[6];      // 6 More chars of name (UTF-16)
-        uint16_t firstCluster;  // Always 0x0000
-    uint16_t name3[2];
-};
-
-typedef union dentry {
-    struct short_name_dentry msdos;
-    struct long_name_dentry lfn;
-} dentry_t;
 
 #pragma pack(pop)
 

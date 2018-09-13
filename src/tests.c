@@ -47,7 +47,9 @@ int main(int argc, char **argv)
     }else { printf("\r\n[TEST] Basic 8.3 read test PASSED."); }*/
 
     //tf_list_root();
-    fat32_list_root(&desc);
+    //fat32_list_root(&desc);
+    struct fat32_dentry dentry;
+    fat32_lookup(&desc, "/systemd/test.conf", &dentry);
 	fat32_umount(&desc);
     device_close(&device);
 

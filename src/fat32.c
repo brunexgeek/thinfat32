@@ -7,6 +7,9 @@
 #define FIRST_SECTOR(desc, cluster) \
     ( (cluster - 2) * (desc)->sectorsPerCluster + (desc)->firstDataSector )
 
+#define IS_VALID_CLUSTER(desc, cluster) \
+    ( cluster >= 2 && cluster < TF_MARK_BAD_CLUSTER32 && cluster < (desc)->cluster_count)
+
 
 int fat32_mount(
     struct fat32_descriptor *desc,
@@ -126,22 +129,21 @@ int fat32_umount(
 
 static int fat32_read_cluster(
     struct fat32_descriptor *desc,
-    struct storage_device *device,
     uint32_t cluster,
     uint8_t *buffer,
     size_t size )
 {
-    if (device == NULL || buffer == NULL || size != desc->clusterSize) return 1;
+    if (desc == NULL || buffer == NULL || size != desc->clusterSize) return 1;
 
     uint32_t sector = FIRST_SECTOR(desc, cluster);
 
     size_t i = 0;
     for (; i < desc->clusterSize / 512; ++i)
     {
-        device_read(device, sector + i, buffer + i * 512);
+        device_read(desc->device, (uint32_t) (sector + i), buffer + i * 512);
     }
 
-    dbg_printf("Read cluster #%d (%d sectors from sector #%d)\n", cluster, i, sector);
+    dbg_printf("Read cluster #%d (%d sectors from sector #%d)\n", cluster, (uint32_t) i, sector);
 
     return 0;
 }
@@ -160,7 +162,8 @@ static int fat32_next_cluster(
     cluster -= 2;
     if (cluster >= desc->cluster_count) return 1;
 
-    return desc->fat[cluster];
+    *next = desc->fat[cluster];
+    return 0;
 }
 
 
@@ -169,26 +172,26 @@ static int fat32_next_cluster(
  *
  */
 static int fat32_parse_lfn(
-    struct fat32_descriptor *desc,
     union dentry *dentry,
     char *buffer )
 {
+
     if (buffer == NULL) return 1;
 
     int offset = 0;
 
     if ((dentry->lfn.sequence_number & 0xF0) != 0x40)
-        offset = strlen(buffer);
+        offset = (int) strlen(buffer);
 
     for (int i = sizeof(dentry->lfn.name3) / sizeof(uint16_t) - 1; offset < 255 && i >= 0; --i)
         if (dentry->lfn.name3[i] != 0 && dentry->lfn.name3[i] != 0xFFFF)
-            buffer[offset++] = dentry->lfn.name3[i] & 0x00FF;
+            buffer[offset++] = (char) (dentry->lfn.name3[i] & 0x00FF);
     for (int i = sizeof(dentry->lfn.name2) / sizeof(uint16_t) - 1; offset < 255 && i >= 0; --i)
         if (dentry->lfn.name2[i] != 0 && dentry->lfn.name2[i] != 0xFFFF)
-            buffer[offset++] = dentry->lfn.name2[i] & 0x00FF;
+            buffer[offset++] = (char) (dentry->lfn.name2[i] & 0x00FF);
     for (int i = sizeof(dentry->lfn.name1) / sizeof(uint16_t) - 1; offset < 255 && i >= 0; --i)
         if (dentry->lfn.name1[i] != 0 && dentry->lfn.name1[i] != 0xFFFF)
-            buffer[offset++] = dentry->lfn.name1[i] & 0x00FF;
+            buffer[offset++] = (char) (dentry->lfn.name1[i] & 0x00FF);
 
     buffer[offset] = 0;
 
@@ -214,11 +217,10 @@ static int fat32_list_dentry(
     const char *parent )
 {
     uint8_t *buffer = (uint8_t*) malloc( desc->clusterSize );
-    if (fat32_read_cluster(desc, desc->device, cluster, buffer, desc->clusterSize) != 0) return 1;
+    if (fat32_read_cluster(desc, cluster, buffer, desc->clusterSize) != 0) return 1;
 
     union dentry *entries = (union dentry *) buffer;
     char fileName[256];
-    bool complete = false;
 
     for (size_t i = 0; i < desc->clusterSize / 32; ++i)
     {
@@ -228,7 +230,7 @@ static int fat32_list_dentry(
 
         if (entries[i].msdos.attributes == ATTR_LONG_NAME)
         {
-            fat32_parse_lfn(desc, entries +i, fileName);
+            fat32_parse_lfn(entries +i, fileName);
         }
         else
         {
@@ -266,4 +268,131 @@ int fat32_list_root(
     struct fat32_descriptor *desc )
 {
     return fat32_list_dentry(desc, 2, "");
+}
+
+
+int fat32_create_iterator(
+    struct dentry_iterator *it,
+    struct fat32_descriptor *desc,
+    uint32_t cluster )
+{
+    it->buffer = (uint8_t*) malloc(desc->clusterSize + FAT32_MAX_LFN);
+    if (it->buffer == NULL) return 1;
+    it->fileName = (char*) it->buffer + desc->clusterSize;
+    it->cluster = cluster;
+    it->offset = 0;
+    it->desc = desc;
+
+    fat32_read_cluster(it->desc, it->cluster, it->buffer, it->desc->clusterSize);
+
+    return 0;
+}
+
+
+int fat32_destroy_iterator(
+    struct dentry_iterator *it )
+{
+    free(it->buffer);
+    it->desc = NULL;
+    it->buffer = NULL;
+    it->fileName = NULL;
+    it->cluster = 0;
+    it->offset = 0;
+    return 0;
+}
+
+
+int fat32_iterate(
+    struct dentry_iterator *it,
+    union dentry **dentry,
+	const char **fileName )
+{
+    if (dentry == NULL || it == NULL || it->buffer == NULL || fileName == NULL) return 1;
+    it->fileName[0] = 0;
+
+    do {
+
+        if (it->offset + sizeof(union dentry) >= it->desc->clusterSize)
+        {
+            it->offset = 0;
+            it->cluster = it->desc->fat[it->cluster];
+            if (!IS_VALID_CLUSTER(it->desc, it->cluster)) return 1;
+            fat32_read_cluster(it->desc, it->cluster, it->buffer, it->desc->clusterSize);
+        }
+
+        union dentry *entries = (union dentry *) it->buffer;
+
+        for (size_t i = it->offset / 32; i < it->desc->clusterSize / 32; ++i)
+        {
+            it->offset += 32;
+            if (entries[i].msdos.name[0] == 0) return 1;
+            // skip the volume ID inside root directory
+            if (entries[i].msdos.attributes != ATTR_LONG_NAME && entries[i].msdos.attributes & ATTR_VOLUME_ID) continue;
+
+            if (entries[i].msdos.attributes == ATTR_LONG_NAME)
+            {
+                fat32_parse_lfn(entries +i, it->fileName);
+            }
+            else
+            {
+                if (it->fileName[0] == '.' || entries[i].msdos.name[0] == '.') continue;
+                // print file name
+                if (it->fileName[0] == 0)
+                {
+                    memcpy(it->fileName, entries[i].msdos.name, 8 + 3);
+                    it->fileName[8 + 3] = 0;
+                }
+
+                *fileName = it->fileName;
+                *dentry = entries + i;
+                return 0; // return current entry
+            }
+        }
+    } while (1);
+}
+
+
+int fat32_lookup(
+    struct fat32_descriptor *desc,
+    const char *path,
+    struct fat32_dentry *dentry )
+{
+    if (desc == NULL || path == NULL || path[0] != '/' || dentry == NULL) return 1;
+    if (strlen(path) > FAT32_MAX_PATH) return 1;
+
+    char component[FAT32_MAX_LFN];
+    union dentry *current = NULL;
+
+    uint8_t *buffer = (uint8_t*) malloc(desc->clusterSize);
+    if (buffer == NULL) return 1;
+
+    uint32_t cluster = 2; // start from root directory
+    path++; // discard the starting slash
+
+    struct dentry_iterator it;
+    fat32_create_iterator(&it, desc, cluster);
+
+    while (*path != 0)
+    {
+        // extract the current path component
+        int i = 0;
+        component[0] = 0;
+        while (*path != '/' && *path != 0 && i + 1 < sizeof(component)) component[i++] = *path++;
+        component[i] = 0;
+        if (i == 0) break;
+        ++path;
+
+        dbg_printf("Looking for '%s'\n", component);
+        char *fileName;
+        union dentry *dentry;
+        while (1)
+        {
+            if (fat32_iterate(&it, &dentry, &fileName) != 0) break;
+            dbg_printf("Found file '%s'\n", fileName);
+        }
+        break;
+    }
+
+    fat32_destroy_iterator(&it);
+    return 0;
 }

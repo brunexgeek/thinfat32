@@ -21,6 +21,9 @@
 #define TF_MARK_BAD_CLUSTER32 0x0ffffff7
 #define TF_MARK_EOC32 0x0fffffff
 
+#define FAT32_MAX_PATH  260 // path + null terminator
+#define FAT32_MAX_LFN   256 // path + null terminator
+
 #ifdef DEBUG
 
 #include <stdio.h>
@@ -49,6 +52,42 @@ typedef struct struct_TFStats {
 #endif  // DEBUG
 
 
+#pragma pack(push, 1)
+
+struct short_name_dentry {
+    uint8_t  name[8];
+    uint8_t  extension[3];
+    uint8_t  attributes;
+    uint8_t  reserved;
+    uint8_t  creation_time_tenth;
+    uint16_t creation_time;
+    uint16_t creation_date;
+    uint16_t last_access_time;
+    uint16_t first_cluster_hi;
+    uint16_t write_time;
+    uint16_t write_date;
+    uint16_t first_cluster_lo;
+    uint32_t size;
+};
+
+struct long_name_dentry {
+    uint8_t sequence_number;
+    uint16_t name1[5];      // 5 Chars of name (UTF 16???)
+    uint8_t attributes;     // Always 0x0f
+    uint8_t reserved;       // Always 0x00
+    uint8_t checksum;       // Checksum of DOS Filename.  See Docs.
+    uint16_t name2[6];      // 6 More chars of name (UTF-16)
+        uint16_t firstCluster;  // Always 0x0000
+    uint16_t name3[2];
+};
+
+typedef union dentry {
+    struct short_name_dentry msdos;
+    struct long_name_dentry lfn;
+} dentry_t;
+
+#pragma pack(pop)
+
 struct fat32_descriptor
 {
     // FILESYSTEM INFO PROPER
@@ -71,6 +110,22 @@ struct fat32_descriptor
 };
 
 
+struct fat32_dentry
+{
+	uint32_t cluster;
+	uint32_t attributes;
+};
+
+
+struct dentry_iterator
+{
+    uint32_t cluster;
+    uint32_t offset;
+    struct fat32_descriptor *desc;
+    uint8_t *buffer;
+	char *fileName;
+};
+
 
 int fat32_mount(
     struct fat32_descriptor *desc,
@@ -81,6 +136,24 @@ int fat32_umount(
 
 int fat32_list_root(
     struct fat32_descriptor *desc );
+
+int fat32_lookup(
+    struct fat32_descriptor *desc,
+    const char *path,
+    struct fat32_dentry *dentry );
+
+int fat32_create_iterator(
+    struct dentry_iterator *it,
+    struct fat32_descriptor *desc,
+    uint32_t cluster );
+
+int fat32_destroy_iterator(
+    struct dentry_iterator *it );
+
+int fat32_iterate(
+    struct dentry_iterator *it,
+	union dentry **dentry,
+	const char **fileName );
 
 #endif
 
