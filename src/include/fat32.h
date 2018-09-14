@@ -65,18 +65,12 @@ struct short_name_dentry
 	uint8_t  name[8];
 	uint8_t  extension[3];
 	uint8_t  attributes;
-	union
-	{
-		struct
-		{
-			uint8_t  reserved;
-			uint8_t  creation_time_tenth;
-		} msdos;
-		struct
-		{
-			uint16_t hash;
-		} machina;
-	} extra;
+	#ifdef FAT32_ENABLE_HASH
+	uint16_t hash;
+	#else
+	uint8_t  reserved;
+	uint8_t  creation_time_tenth;
+	#endif
 	uint16_t creation_time;
 	uint16_t creation_date;
 	uint16_t last_access_time;
@@ -142,6 +136,7 @@ struct dentry_iterator
 	struct fat32_descriptor *desc;
 	uint8_t *buffer;
 	char *fileName;
+	uint16_t fileNameLen;
 	uint32_t flags;
 };
 

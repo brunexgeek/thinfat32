@@ -14,7 +14,7 @@
 
 #define ATTR_LONG_NAME_MASK (ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID | ATTR_DIRECTORY | ATTR_ARCHIVE)
 
-#define FAT32_SFN_LENGTH    (8+3)
+#define FAT32_MAX_SFN    (8+3)
 
 #pragma pack(push, 1)
 
@@ -68,6 +68,18 @@ struct bpb
         struct bpb_fat1x fat16;
         struct bpb_fat32 fat32;
     } fat_specific;
+};
+
+
+struct fs_info
+{
+    uint32_t lead_signature;   // always 0x41615252
+    uint8_t reserved1[480];
+    uint32_t struct_signature; // always 0x61417272
+    uint32_t free_count;
+    uint32_t next_free;
+    uint8_t reserved2[12];
+    uint32_t trail_signature;  // always 0xAA550000
 };
 
 

@@ -30,16 +30,16 @@ void printBPB(struct bpb *s) {
 	printf("    Number of Heads: %d\n", s->number_heads);
 	printf("     Hidden Sectors: %d\n", s->hidden_sectors);
 	printf("Total Sectors (32b): %d\n", s->total_sectors_32);
-	
+
 	printf("\n");
-	switch(fat_type(s)) 
+	switch(fat_type(s))
 	{
 		case TYPE_FAT12: printf("           FAT Type: FAT12\n"); break;
 		case TYPE_FAT16: printf("           FAT Type: FAT16\n"); break;
 		case TYPE_FAT32: printf("           FAT Type: FAT32\n"); break;
 		default: printf("FAT TYPE UNRECOGNIZED!\n"); break;
 	}
-	if((fat_type(s) == TYPE_FAT12) | (fat_type(s) == TYPE_FAT16)) 
+	if((fat_type(s) == TYPE_FAT12) | (fat_type(s) == TYPE_FAT16))
 	{
 		printf("       Drive Number: %d\n", s->fat_specific.fat16.drive_number);
 		printf("     Boot Signature: 0x%02x\n", s->fat_specific.fat16.boot_sig);
@@ -47,7 +47,7 @@ void printBPB(struct bpb *s) {
 		printf("       Volume Label: '%.*s'\n", 11, s->fat_specific.fat16.volume_label);
 		printf("     FileSystemType: '%.*s'\n", 8, s->fat_specific.fat16.fs_type);
 	}
-	else 
+	else
 	{
 		printf("     FAT Size (32b): %d\n", s->fat_specific.fat32.fat_size_32);
 	   	printf("          FAT Flags: 0x%04x\n", s->fat_specific.fat32.flags);
@@ -86,52 +86,16 @@ void print_media(unsigned char mediatype) {
 	}
 }
 
-void print_sector(unsigned char *sector) {
-       int i;
 
-	for(i=0; i<(512-8); i+=8) {
-		printf(" %02x%02x%02x%02x %02x%02x%02x%02x        %c%c%c%c %c%c%c%c\n", sector[i], sector[i+1], sector[i+2], sector[i+3], sector[i+4], sector[i+5], sector[i+6], sector[i+7], sector[i], sector[i+1], sector[i+2], sector[i+3], sector[i+4], sector[i+5], sector[i+6], sector[i+7]);
-	}
-}
-#if 0
-void print_tf_info(TFInfo *t) {
-	printf("    TFInfo Structure\n    ----------------\n");
-	switch(t->type) {
-		case TF_TYPE_FAT16: printf("               Type: FAT16\n"); break;
-		case TF_TYPE_FAT32: printf("               Type: FAT32\n"); break;
-		default: printf("               Type: UNRECOGNIZED! (0x%02x)\n", t->type); break;
-	}
-	printf("Sectors Per Cluster: %d\n", t->sectorsPerCluster);
-	printf("      Total Sectors: %d\n", t->totalSectors);
-	printf("   Reserved Sectors: %d\n", t->reservedSectors);
-	printf("  First Data Sector: %d\n", t->firstDataSector);
+void print_fsinfo(
+	struct fs_info *fsi )
+{
+	printf("\n==== FILE SYSTEM INFORMATION ====\n");
+	printf("     Load signature: 0x%8x\n", fsi->lead_signature);
+	printf("   Struct signature: 0x%8x\n", fsi->struct_signature);
+	printf("      Free clusters: %d\n", fsi->free_count);
+	printf("  Next free cluster: %d\n", fsi->next_free);
+	printf("     Tail signature: 0x%8x\n", fsi->trail_signature);
 }
 
-void print_TFFile(TFFile *fp) {
-	printf("     TFFile Structure\n    ----------------\n");
-	printf("    currentCluster: %d\n", fp->currentCluster);
-	printf(" currentClusterIdx: %d\n", fp->currentClusterIdx);
-	printf("parentStartCluster: %d\n", fp->parentStartCluster);
-	printf("      startCluster: %d\n", fp->startCluster);
-	printf("     currentSector: %d\n", fp->currentSector);
-	printf("       currentByte: %d\n", fp->currentByte);
-	printf("               pos: %d\n", fp->pos);
-	printf("             flags: 0x%02x\n", fp->flags);
-	printf("              size: %d bytes\n", fp->size);
-}
-
-void print_FatFileEntry(dentry_t *entry) {
-	printf("    FatFile Structure\n    ---------------\n");
-	print_FatFile83(&(entry->msdos));
-}
-void print_FatFile83(struct short_name_dentry *entry) {
-	printf("         Type: 8.3 Filename\n");
-	printf("     Filename: %.*s\n", 8, entry->name);
-	printf("    Extension: %.*s\n", 3,  entry->extension);
-	printf("   Attributes: 0x%02x\n", entry->attributes);
-	printf("First Cluster: %d\n", ((entry->first_cluster_hi & 0xffff) << 16) | ((entry->first_cluster_lo & 0xffff)));
-	printf("Creation Time: %d/%d/%d\n", ((entry->creation_date & 0xfe00) >> 9) + 1980, ((entry->creation_date & 0x1e0) >> 5), (entry->creation_date & 0xf)*2);
-}
-
-#endif
 

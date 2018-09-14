@@ -10,6 +10,8 @@
 #define IS_VALID_CLUSTER(desc, cluster) \
     ( cluster >= 2 && cluster < TF_MARK_BAD_CLUSTER32 && cluster < (desc)->cluster_count)
 
+#define TO_LOWER_CASE(x) \
+    ( ( (x) >= 'A' && (x) <= 'Z' ) ? (x) + 32 : (x) )
 
 static uint16_t fat32_hash(
     const uint8_t *fileName );
@@ -107,6 +109,10 @@ int fat32_mount(
     desc->rootDirectorySize = 0xffffffff;
     desc->buffer = (uint8_t*) malloc( desc->clusterSize );
 
+    // read FSInfo sector
+    device_read(device, bpb->fat_specific.fat32.fs_info, sectorData);
+    print_fsinfo((struct fs_info*)sectorData);
+
     // load FAT to memory
     size_t bytesPerSector = bpb->bytes_per_sector;
     bpb = NULL;
@@ -117,8 +123,8 @@ int fat32_mount(
         memcpy( (uint8_t*) desc->fat + i * bytesPerSector, sectorData, bytesPerSector);
     }
     dbg_printf("Read %d sectors from FAT\n", fat_size);
+    dbg_printf("Mounted FAT32 volume!\n");
 
-    dbg_printf("\r\ntf_init() successful...\r\n");
     return 0;
 }
 
@@ -220,6 +226,29 @@ static int fat32_parse_lfn(
 #endif // FAT32_ENABLE_LFN
 
 
+static int fat32_format_sfn(
+    const union dentry *dentry,
+    char *buffer,
+    size_t size )
+{
+    // buffer should fit the name, a null terminator and the dot
+    if (size < FAT32_MAX_SFN + 2) return 1;
+    size_t i = 0, j = 0;
+
+    while (i < FAT32_MAX_SFN)
+    {
+        if (i == 8) buffer[j++] = '.';
+        if (dentry->msdos.name[i] != 0x20)
+            buffer[j++] = TO_LOWER_CASE(dentry->msdos.name[i]);
+        ++i;
+    }
+    if (j > 0 && buffer[j - 1] == '.') --j;
+    buffer[j] = 0;
+
+    return 0;
+}
+
+
 static int fat32_list_dentry(
     struct fat32_descriptor *desc,
     uint32_t cluster,
@@ -233,7 +262,11 @@ static int fat32_list_dentry(
 
     while (fat32_iterate(&it, &dentry, &fileName) == 0)
     {
-        dbg_printf("[0x%04x] [0x%04x] %s/%s\n", fat32_hash(fileName), dentry->msdos.extra.machina.hash, parent, fileName);
+        #ifdef FAT32_ENABLE_HASH
+        dbg_printf("[0x%04x] [0x%04x] %s/%s\n", fat32_hash(dentry->msdos.name), dentry->msdos.hash, parent, fileName);
+        #else
+        dbg_printf("%s/%s\n", parent, fileName);
+        #endif
 
         // if the current entry is a directory, recusively list its files
         if (dentry->msdos.attributes & ATTR_DIRECTORY)
@@ -260,12 +293,14 @@ int fat32_list_root(
 }
 
 
+#ifdef FAT32_ENABLE_HASH
+
 static uint16_t fat32_hash(
     const uint8_t *fileName )
 {
     size_t i = 0;
     uint32_t hash = 0;
-    while (i != FAT32_SFN_LENGTH)
+    while (i != FAT32_MAX_SFN)
     {
         hash += fileName[i++];
         hash += hash << 10;
@@ -278,6 +313,8 @@ static uint16_t fat32_hash(
     return (uint16_t) ( ((hash & 0xFFFF0000) >> 16) ^ (hash & 0xFFFF) );
 }
 
+#endif // FAT32_ENABLE_HASH
+
 
 int fat32_create_iterator(
     struct dentry_iterator *it,
@@ -285,7 +322,13 @@ int fat32_create_iterator(
     uint32_t cluster,
     uint32_t flags )
 {
-    it->buffer = (uint8_t*) malloc(desc->clusterSize + FAT32_MAX_LFN);
+    #ifdef FAT32_ENABLE_LFN
+    it->fileNameLen = FAT32_MAX_LFN;
+    it->buffer = (uint8_t*) malloc(desc->clusterSize + it->fileNameLen);
+    #else
+    it->fileNameLen = FAT32_MAX_SFN + 2;
+    it->buffer = (uint8_t*) malloc(desc->clusterSize + it->fileNameLen);
+    #endif
     if (it->buffer == NULL) return 1;
     it->fileName = (char*) it->buffer + desc->clusterSize;
     it->cluster = cluster;
@@ -377,8 +420,7 @@ int fat32_iterate(
                 if (it->fileName[0] == 0)
                 #endif
                 {
-                    memcpy(it->fileName, entries[i].msdos.name, FAT32_SFN_LENGTH);
-                    it->fileName[FAT32_SFN_LENGTH] = 0;
+                    fat32_format_sfn(entries +i, it->fileName, it->fileNameLen);
                 }
 
                 *fileName = it->fileName;
