@@ -6,6 +6,9 @@
 #include <device.h>
 
 
+#define FAT32_ENABLE_HASH
+
+
 #define TF_ERR_NO_ERROR 0
 #define TF_ERR_BAD_BOOT_SIGNATURE 1
 #define TF_ERR_BAD_FS_TYPE 2
@@ -24,87 +27,102 @@
 #define FAT32_MAX_PATH  260 // path + null terminator
 #define FAT32_MAX_LFN   256 // path + null terminator
 
+/// Iterate through all valid entries (e.g. deleted and LFN)
+#define FAT32_ITF_ANY    0x01
+
 #ifdef DEBUG
 
 #include <stdio.h>
 
-    #define dbg_printf(...) printf(__VA_ARGS__)
-    #define dbg_printHex(x,y) printHex(x,y)
+	#define dbg_printf(...) printf(__VA_ARGS__)
+	#define dbg_printHex(x,y) printHex(x,y)
 
 #ifdef TF_DEBUG
 typedef struct struct_TFStats {
-    unsigned long sector_reads;
-    unsigned long sector_writes;
+	unsigned long sector_reads;
+	unsigned long sector_writes;
 } TFStats;
 
-    #define tf_printf(...) printf(__VA_ARGS__)
-    #define tf_printHex(x,y) printHex(x,y)
+	#define tf_printf(...) printf(__VA_ARGS__)
+	#define tf_printHex(x,y) printHex(x,y)
 #else
-    #define tf_printf(...)
-    #define tf_printHex(x,y)
+	#define tf_printf(...)
+	#define tf_printHex(x,y)
 #endif  // TF_DEBUG
 
 #else   // DEBUG
-    #define dbg_printf(...)
-    #define dbg_printHex(x,y)
-    #define tf_printf(...)
-    #define tf_printHex(x,y)
+	#define dbg_printf(...)
+	#define dbg_printHex(x,y)
+	#define tf_printf(...)
+	#define tf_printHex(x,y)
 #endif  // DEBUG
 
 
 #pragma pack(push, 1)
 
-struct short_name_dentry {
-    uint8_t  name[8];
-    uint8_t  extension[3];
-    uint8_t  attributes;
-    uint8_t  reserved;
-    uint8_t  creation_time_tenth;
-    uint16_t creation_time;
-    uint16_t creation_date;
-    uint16_t last_access_time;
-    uint16_t first_cluster_hi;
-    uint16_t write_time;
-    uint16_t write_date;
-    uint16_t first_cluster_lo;
-    uint32_t size;
+struct short_name_dentry
+{
+	uint8_t  name[8];
+	uint8_t  extension[3];
+	uint8_t  attributes;
+	union
+	{
+		struct
+		{
+			uint8_t  reserved;
+			uint8_t  creation_time_tenth;
+		} msdos;
+		struct
+		{
+			uint16_t hash;
+		} machina;
+	} extra;
+	uint16_t creation_time;
+	uint16_t creation_date;
+	uint16_t last_access_time;
+	uint16_t first_cluster_hi;
+	uint16_t write_time;
+	uint16_t write_date;
+	uint16_t first_cluster_lo;
+	uint32_t size;
 };
 
 struct long_name_dentry {
-    uint8_t sequence_number;
-    uint16_t name1[5];      // 5 Chars of name (UTF 16???)
-    uint8_t attributes;     // Always 0x0f
-    uint8_t reserved;       // Always 0x00
-    uint8_t checksum;       // Checksum of DOS Filename.  See Docs.
-    uint16_t name2[6];      // 6 More chars of name (UTF-16)
-        uint16_t firstCluster;  // Always 0x0000
-    uint16_t name3[2];
+	uint8_t sequence_number;
+	uint16_t name1[5];      // 5 Chars of name (UTF 16???)
+	uint8_t attributes;     // Always 0x0f
+	uint8_t reserved;       // Always 0x00
+	uint8_t checksum;       // Checksum of DOS Filename.  See Docs.
+	uint16_t name2[6];      // 6 More chars of name (UTF-16)
+	uint16_t firstCluster;  // Always 0x0000
+	uint16_t name3[2];
 };
 
-typedef union dentry {
-    struct short_name_dentry msdos;
-    struct long_name_dentry lfn;
-} dentry_t;
+union dentry {
+	struct short_name_dentry msdos;
+	struct long_name_dentry lfn;
+};
 
 #pragma pack(pop)
 
 struct fat32_descriptor
 {
-    // FILESYSTEM INFO PROPER
-    uint8_t type; // 0 for FAT16, 1 for FAT32.  FAT12 NOT SUPPORTED
-    uint8_t sectorsPerCluster;
-    uint32_t firstDataSector;
-    uint32_t totalSectors;
-    uint16_t reservedSectors;
-    // "LIVE" DATA
-    uint32_t currentSector;
-    uint8_t sectorFlags;
-    uint32_t rootDirectorySize;
+	// FILESYSTEM INFO PROPER
+	uint8_t type; // 0 for FAT16, 1 for FAT32.  FAT12 NOT SUPPORTED
+	uint8_t sectorsPerCluster;
+	uint32_t firstDataSector;
+	uint32_t totalSectors;
+	uint16_t reservedSectors;
+	// "LIVE" DATA
+	uint32_t currentSector;
+	uint8_t sectorFlags;
+	uint32_t rootDirectorySize;
 //    uint8_t buffer[512];
-    uint8_t *buffer; // always the same size of the cluster
-    uint32_t *fat;
-    uint32_t cluster_count;
-    uint32_t clusterSize; // in bytes
+	uint8_t *buffer; // always the same size of the cluster
+	uint32_t *fat;
+	uint32_t cluster_count;
+	uint32_t clusterSize; // in bytes
+	uint32_t sectorSize; // in bytes
 
 	struct storage_device *device;
 };
@@ -119,39 +137,41 @@ struct fat32_dentry
 
 struct dentry_iterator
 {
-    uint32_t cluster;
-    uint32_t offset;
-    struct fat32_descriptor *desc;
-    uint8_t *buffer;
+	uint32_t cluster;
+	uint32_t offset;
+	struct fat32_descriptor *desc;
+	uint8_t *buffer;
 	char *fileName;
+	uint32_t flags;
 };
 
 
 int fat32_mount(
-    struct fat32_descriptor *desc,
-    struct storage_device *device );
+	struct fat32_descriptor *desc,
+	struct storage_device *device );
 
 int fat32_umount(
 	struct fat32_descriptor *desc );
 
 int fat32_list_root(
-    struct fat32_descriptor *desc );
+	struct fat32_descriptor *desc );
 
 int fat32_lookup(
-    struct fat32_descriptor *desc,
-    const char *path,
-    struct fat32_dentry *dentry );
+	struct fat32_descriptor *desc,
+	const char *path,
+	struct fat32_dentry *dentry );
 
 int fat32_create_iterator(
-    struct dentry_iterator *it,
-    struct fat32_descriptor *desc,
-    uint32_t cluster );
+	struct dentry_iterator *it,
+	struct fat32_descriptor *desc,
+	uint32_t cluster,
+	uint32_t flags );
 
 int fat32_destroy_iterator(
-    struct dentry_iterator *it );
+	struct dentry_iterator *it );
 
 int fat32_iterate(
-    struct dentry_iterator *it,
+	struct dentry_iterator *it,
 	union dentry **dentry,
 	const char **fileName );
 
@@ -221,7 +241,7 @@ typedef struct struct_BPBFAT1216_struct {
 	unsigned char     BS_Reserved1;             // 1
 	unsigned char     BS_BootSig;               // 1
 	unsigned int      BS_VolumeID;              // 4
-	         char     BS_VolumeLabel[11];       // 11
+			 char     BS_VolumeLabel[11];       // 11
 		 char     BS_FileSystemType[8];     // 8
 } BPB1216_struct;
 
@@ -238,13 +258,13 @@ typedef struct struct_BPBFAT32_struct {
 	unsigned char     BS_Reserved1;              // 1
 	unsigned char     BS_BootSig;                // 1
 	unsigned int      BS_VolumeID;               // 4
-	         char     BS_VolumeLabel[11];        // 11
-	         char     BS_FileSystemType[8];      // 8
+			 char     BS_VolumeLabel[11];        // 11
+			 char     BS_FileSystemType[8];      // 8
 } BPB32_struct;
 
 typedef struct struct_BPB_struct {
 	unsigned char     BS_JumpBoot[3];            // 3
-	         char     BS_OEMName[8];             // 8
+			 char     BS_OEMName[8];             // 8
 	unsigned short    BytesPerSector;        // 2
 	unsigned char     SectorsPerCluster;     // 1
 	unsigned short    ReservedSectorCount;   // 2
@@ -315,7 +335,7 @@ typedef struct struct_FatFileLFN {
 	unsigned char reserved;       // Always 0x00
 	unsigned char checksum;       // Checksum of DOS Filename.  See Docs.
 	unsigned short name2[6];      // 6 More chars of name (UTF-16)
-        unsigned short firstCluster;  // Always 0x0000
+		unsigned short firstCluster;  // Always 0x0000
 	unsigned short name3[2];
 } FatFileLFN;
 

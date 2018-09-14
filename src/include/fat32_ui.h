@@ -10,7 +10,7 @@ void print_media(unsigned char mediatype);
 //void print_TFFile(TFFile *fp);
 //void print_tf_info(TFInfo *t);
 
-void print_FatFileEntry(dentry_t *entry);
+void print_FatFileEntry(union dentry *entry);
 void print_FatFileLFN(struct long_name_dentry *entry);
 void print_FatFile83(struct short_name_dentry *entry);
 
