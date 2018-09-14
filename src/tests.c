@@ -49,10 +49,15 @@ int main(int argc, char **argv)
     //tf_list_root();
     //fat32_list_root(&desc);
 
-    /*struct fat32_dentry dentry;
-    fat32_lookup(&desc, "/systemd/test.conf", &dentry);*/
-
+#if 0
+    union dentry dentry;
+    if (fat32_lookup(&desc, "/chips/chips.exe", &dentry) == 0)
+    {
+        printf("FOUND '%.*s'", FAT32_MAX_SFN, dentry.msdos.name);
+    }
+#else
     fat32_list_root(&desc);
+#endif
 
 	fat32_umount(&desc);
     device_close(&device);

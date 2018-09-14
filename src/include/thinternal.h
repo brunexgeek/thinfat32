@@ -1,20 +1,6 @@
 #ifndef _THINTERNAL_H
 #define _THINTERNAL_H
 
-#define false 0
-#define true 1
-
-#define ATTR_READ_ONLY      0x01
-#define ATTR_HIDDEN         0x02
-#define ATTR_SYSTEM         0x04
-#define ATTR_VOLUME_ID      0x08
-#define ATTR_DIRECTORY      0x10
-#define ATTR_ARCHIVE        0x20
-#define ATTR_LONG_NAME      (ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID)
-
-#define ATTR_LONG_NAME_MASK (ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID | ATTR_DIRECTORY | ATTR_ARCHIVE)
-
-#define FAT32_MAX_SFN    (8+3)
 
 #pragma pack(push, 1)
 
