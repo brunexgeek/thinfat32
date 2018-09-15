@@ -17,14 +17,52 @@
 static struct fat32_descriptor desc;
 
 
+static uint32_t make_time(
+    uint32_t year,
+    uint32_t month,
+    uint32_t day,
+    uint32_t hour,
+    uint32_t minute,
+    uint32_t second )
+{
+    if (day < 1 || day > 31 || month < 1 || month > 12 || year < 1970 || year > 2037) return 0;
+
+    year -= (month <= 2);
+    const uint32_t era = year / 400;
+    const uint32_t yoe = (uint32_t) (year - era * 400);      // [0, 399]
+    const uint32_t doy = (153* ( (month > 2 ? month - 3 : month + 9)) + 2)/5 + day - 1;  // [0, 365]
+    const uint32_t doe = yoe * 365 + yoe/4 - yoe/100 + doy;         // [0, 146096]
+    uint32_t output = era * 146097 + (uint32_t) (doe) - 719468; // total days
+    return (output * 24 * 60 * 60) + (hour * 60 * 60) + (minute * 60) + second;
+}
+
+
+#define FAT32_DAY(x)    ( (x) & 0x001F )
+#define FAT32_MONTH(x)  ( ((x) & 0x01E0) >> 5 )
+#define FAT32_YEAR(x)   ( (((x) & 0xFE00) >> 9 ) + 1980 )
+#define FAT32_SECOND(x) ( (x) & 0x001F )
+#define FAT32_MINUTE(x) ( ((x) & 0x07E0) >> 5 )
+#define FAT32_HOUR(x)   ( ((x) & 0xF800) >> 11 )
+
+
 static void fill_stat(
     union dentry *dentry,
     struct stat *st )
 {
 	st->st_uid = getuid();
 	st->st_gid = getgid();
-	st->st_atime = time( NULL );
-	st->st_mtime = time( NULL );
+	st->st_atime = (time_t) make_time(
+        FAT32_YEAR(dentry->msdos.access_date),
+        FAT32_MONTH(dentry->msdos.access_date),
+        FAT32_DAY(dentry->msdos.access_date),
+        0, 0, 0 );
+	st->st_mtime = (time_t) make_time(
+        FAT32_YEAR(dentry->msdos.write_date),
+        FAT32_MONTH(dentry->msdos.write_date),
+        FAT32_DAY(dentry->msdos.write_date),
+        FAT32_HOUR(dentry->msdos.write_time),
+        FAT32_MINUTE(dentry->msdos.write_time),
+        FAT32_SECOND(dentry->msdos.write_time) );
 
     if (dentry->msdos.attributes & ATTR_DIRECTORY)
     {
@@ -68,6 +106,24 @@ static int do_getattr(
 
 	return 0;
 }
+
+/*
+static uint32_t make_time(
+    int year,
+    int month,
+    int day,
+    int hour,
+    int minute,
+    int second )
+{
+    year -= (month <= 2);
+    const uint32_t era = (year >= 0 ? year : year - 399) / 400;
+    const uint32_t yoe = (uint32_t) (year - era * 400);      // [0, 399]
+    const uint32_t doy = (153*(month + (month > 2 ? -3 : 9)) + 2)/5 + day - 1;  // [0, 365]
+    const uint32_t doe = yoe * 365 + yoe/4 - yoe/100 + doy;         // [0, 146096]
+    uint32_t output = era * 146097 + (uint32_t) (doe) - 719468; // total days
+    return (output * 24 * 60 * 60) + (hour * 60 * 60) + (minute * 60) + second;
+}*/
 
 
 static int do_readdir(

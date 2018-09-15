@@ -87,7 +87,7 @@ struct short_name_dentry
 	#endif
 	uint16_t creation_time;
 	uint16_t creation_date;
-	uint16_t last_access_time;
+	uint16_t access_date;
 	uint16_t first_cluster_hi;
 	uint16_t write_time;
 	uint16_t write_date;
