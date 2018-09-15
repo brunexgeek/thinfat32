@@ -17,6 +17,29 @@
 static struct fat32_descriptor desc;
 
 
+static void fill_stat(
+    union dentry *dentry,
+    struct stat *st )
+{
+	st->st_uid = getuid();
+	st->st_gid = getgid();
+	st->st_atime = time( NULL );
+	st->st_mtime = time( NULL );
+
+    if (dentry->msdos.attributes & ATTR_DIRECTORY)
+    {
+        st->st_mode = S_IFDIR | 0755;
+        st->st_nlink = 2; // Why "two" hardlinks instead of "one"? The answer is here: http://unix.stackexchange.com/a/101536
+    }
+    else
+	{
+		st->st_mode = S_IFREG | 0644;
+		st->st_nlink = 1;
+		st->st_size = dentry->msdos.size;
+	}
+}
+
+
 static int do_getattr(
     const char *path,
     struct stat *st )
@@ -41,39 +64,18 @@ static int do_getattr(
         return -ENOENT;
     }
 
-
-	// GNU's definitions of the attributes (http://www.gnu.org/software/libc/manual/html_node/Attribute-Meanings.html):
-	// 		st_uid: 	The user ID of the file’s owner.
-	//		st_gid: 	The group ID of the file.
-	//		st_atime: 	This is the last access time for the file.
-	//		st_mtime: 	This is the time of the last modification to the contents of the file.
-	//		st_mode: 	Specifies the mode of the file. This includes file type information (see Testing File Type) and the file permission bits (see Permission Bits).
-	//		st_nlink: 	The number of hard links to the file. This count keeps track of how many directories have entries for this file. If the count is ever decremented to zero, then the file itself is discarded as soon
-	//						as no process still holds it open. Symbolic links are not counted in the total.
-	//		st_size:	This specifies the size of a regular file in bytes. For files that are really devices this field isn’t usually meaningful. For symbolic links this specifies the length of the file name the link refers to.
-
-	st->st_uid = getuid(); // The owner of the file/directory is the user who mounted the filesystem
-	st->st_gid = getgid(); // The group of the file/directory is the same as the group of the user who mounted the filesystem
-	st->st_atime = time( NULL ); // The last "a"ccess of the file/directory is right now
-	st->st_mtime = time( NULL ); // The last "m"odification of the file/directory is right now
-
-    if (dentry.msdos.attributes & ATTR_DIRECTORY)
-    {
-        st->st_mode = S_IFDIR | 0755;
-        st->st_nlink = 2; // Why "two" hardlinks instead of "one"? The answer is here: http://unix.stackexchange.com/a/101536
-    }
-    else
-	{
-		st->st_mode = S_IFREG | 0644;
-		st->st_nlink = 1;
-		st->st_size = dentry.msdos.size;
-	}
+    fill_stat(&dentry, st);
 
 	return 0;
 }
 
 
-static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi )
+static int do_readdir(
+    const char *path,
+    void *buffer,
+    fuse_fill_dir_t filler,
+    off_t offset,
+    struct fuse_file_info *fi )
 {
     (void) offset;
     (void) fi;
@@ -120,7 +122,9 @@ static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, o
     while (fat32_iterate(&it, &current, &fileName) == 0)
     {
         ++count;
-        filler(buffer, fileName, NULL, 0);
+        struct stat st;
+        fill_stat(current, &st);
+        filler(buffer, fileName, &st, 0);
     }
 
     fat32_destroy_iterator(&it);
@@ -151,54 +155,6 @@ static int do_read( const char *path, char *buffer, size_t size, off_t offset, s
         (uint32_t) FAT32_MIN(size, dentry.msdos.size), path, (uint32_t) offset);
 
     return fat32_read(&desc, &dentry, (uint8_t*) buffer, (uint32_t) size, (uint32_t) offset);
-/*
-    uint32_t cluster = 0;
-    if (fat32_first_cluster(&desc, &dentry, &cluster) != 0)
-    {
-        printf("readdir: '%s' points to invalud cluster\n", path );
-        return -ENOENT;
-    }
-
-    size_t pending = FAT32_MIN(size, dentry.msdos.size);
-    uint32_t jumps = (uint32_t) (offset / desc.clusterSize);
-    while (jumps > 0)
-    {
-        if (fat32_next_cluster(&desc, cluster, &cluster) != 0)
-        {
-            printf("readdir: unexpected end of file\n");
-            return 0;
-        }
-    }
-
-    // compute the offset within the current cluster
-    offset = offset - jumps * desc.clusterSize;
-    // buffer for a cluster in memory
-    uint8_t *page = (uint8_t*) malloc(desc.clusterSize);
-    if (page == NULL) return 0;
-
-    uint8_t *ptr = (uint8_t*) buffer;
-    while (pending > 0)
-    {
-        // read the current cluster
-        if (fat32_read_cluster(&desc, cluster, page, desc.clusterSize) != 0)
-        {
-            free(page);
-            return 0;
-        }
-        // copy some data
-        size_t rs = (size_t) FAT32_MIN(pending, desc.clusterSize - (uint32_t) offset);
-        memcpy(ptr, page + offset, rs);
-        printf("read: read %u bytes from cluster #%u (%u pending)\n", (uint32_t) rs, cluster, (uint32_t) pending);
-        // update counters
-        ptr += rs;
-        pending -= rs;
-        offset = 0;
-
-        if (pending > 0) fat32_next_cluster(&desc, cluster, &cluster);
-    }
-
-    free(page);
-	return (int) size;*/
 }
 
 
@@ -215,6 +171,7 @@ static struct fuse_operations operations = {
     .read		= do_read,
     .destroy    = do_destroy,
 };
+
 
 int main( int argc, char *argv[] )
 {

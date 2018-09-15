@@ -116,7 +116,6 @@ union dentry {
 struct fat32_descriptor
 {
 	// FILESYSTEM INFO PROPER
-	uint8_t type; // 0 for FAT16, 1 for FAT32.  FAT12 NOT SUPPORTED
 	uint8_t sectorsPerCluster;
 	uint32_t firstDataSector;
 	uint32_t totalSectors;

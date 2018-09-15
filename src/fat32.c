@@ -16,8 +16,13 @@
 #define ALIGN_4(x) \
     (uint32_t) ( (uint32_t) ( (x) + 3 ) & (uint32_t) (~3) )
 
+
+#ifdef FAT32_ENABLE_HASH
+
 static uint16_t fat32_hash(
     const uint8_t *fileName );
+
+#endif
 
 
 int fat32_mount(
@@ -99,8 +104,6 @@ int fat32_mount(
         dbg_printf("  tf_init() FAILED: Invalid FAT32 (cluster count smaller than 65525)\r\n");
         return TF_ERR_BAD_FS_TYPE;
     }
-    else
-        desc->type = TF_TYPE_FAT32;
 
     #ifdef TF_DEBUG
     //desc->sector_reads = 0;
