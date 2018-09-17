@@ -7,6 +7,7 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror=incompatible-pointer-types")
 include_directories("src/include")
 
 add_executable(thinfat32 "./src/fat32.c" "./src/device.c" "./src/tests.c" "./src/fat32_ui.c")
+add_executable(quark "./src/quark.c" "./src/device.c" "./src/tests.c")
 
 add_executable(fusefat32 "./src/fat32.c" "./src/device.c" "./src/fuse.c" "./src/fat32_ui.c")
 target_link_libraries(fusefat32 "fuse")

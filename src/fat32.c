@@ -327,7 +327,7 @@ static uint16_t fat32_hash(
     hash ^= hash >> 11;
     hash += hash << 15;
 
-    return (uint16_t) ( ((hash & 0xFFFF0000) >> 16) ^ (hash & 0xFFFF) );
+    return (uint16_t) ( (hash >> 16) ^ (hash & 0xFFFF) );
 }
 
 #endif // FAT32_ENABLE_HASH
