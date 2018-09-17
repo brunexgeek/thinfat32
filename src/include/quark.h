@@ -35,26 +35,38 @@ struct quark_superblock
 
 struct quark_dentry
 {
-    /*  0 */ uint16_t name_hash;  // hash of the entire file name
-    /*  2 */ uint16_t bits;       // permissions (9 bits) and flags (7 bits)
-    /*  4 */ uint16_t user;
-    /*  6 */ uint16_t group;
+    /*  0 */ uint32_t size;       // effective file size
+    /*  4 */ uint32_t cluster;    // first cluster
     /*  8 */ uint32_t write_time;
-    /* 12 */ uint32_t size;       // effective file size
-    /* 16 */ uint32_t cluster;    // first cluster
-    /* 20 */ uint8_t  reserved[6];
-    /* 26 */ uint8_t  name1[38];  // UTF-8 file name (NULL-terminated if smaller than 40)
-    /* 64 */ uint8_t  name2[];    // optional name continuation (+32 bytes)
+    /* 12 */ uint16_t bits;       // permissions (9 bits) and flags (7 bits)
+    /* 14 */ uint16_t owner;      // 7 MSB for user, 9 LSB for group
+    /* 16 */ uint16_t name_hash;  // hash of the entire file name
+    /* 18 */ uint8_t  name_slots;
+    /* 19 */ uint8_t  reserved;
+    /* 20 */ uint8_t  name[12];   // UTF-8 file name (NULL-terminated if smaller than 12)
 };
 
 
 struct quark_descriptor
 {
-    struct quark_superblock superblock;
+    struct quark_superblock super;
     uint32_t *table;
     uint32_t *bitmap;
     struct storage_device *device;
     uint32_t data_offset;
+    uint32_t sector_per_cluster;
+};
+
+
+struct dentry_iterator
+{
+	uint32_t cluster;
+	uint32_t offset;
+	struct quark_descriptor *desc;
+	uint8_t *buffer;
+	char *fileName;
+	uint16_t fileNameLen;
+	uint32_t flags;
 };
 
 
@@ -82,14 +94,18 @@ struct quark_descriptor
 #define AT_DIRECTORY   0x0400  // dentry is a directory
 #define AT_REGULAR     0x0800  // dentry is a regular file
 #define AT_SYMLINK     0x1000  // dentry is a symbolic link
-#define AT_LONGNAME    0x2000  // use additional 32 bytes for names ('name2' field)
+#define AT_DELETE      0x2000  // entry marked for deletion
 #define AT_UNUSED2     0x4000
 #define AT_UNUSED3     0x8000
 
 #define MFS_SB_SIGNATURE       0xDEADBEEF
 #define MFS_SB_VERSION         0x0100  // 1.0
 
+#define QUARK_MAX_PATH         256
+#define QUARK_MAX_NAME         (12 + 32 + 32)
+#define QUARK_DENTRY_SIZE      ( (uint32_t) sizeof(struct quark_dentry) )
 
+#define QUARK_MIN(a, b)   ( ((a) > (b)) ? (b) : (a) )
 
 
 int quark_format(
@@ -103,5 +119,42 @@ int quark_mount(
 int quark_umount(
 	struct quark_descriptor *desc );
 
+int quark_next_cluster(
+    const struct quark_descriptor *desc,
+    uint32_t cluster,
+    uint32_t *next );
+
+int quark_create_iterator(
+    struct dentry_iterator *it,
+    struct quark_descriptor *desc,
+    uint32_t cluster,
+    uint32_t flags );
+
+int quark_reset_iterator(
+    struct dentry_iterator *it,
+    uint32_t cluster );
+
+int quark_destroy_iterator(
+    struct dentry_iterator *it );
+
+int quark_iterate(
+    struct dentry_iterator *it,
+    struct quark_dentry **dentry,
+	const char **fileName );
+
+int quark_list_root(
+    struct quark_descriptor *desc );
+
+int quark_lookup(
+    struct quark_descriptor *desc,
+    const char *path,
+    struct quark_dentry *dentry);
+
+int quark_read(
+    struct quark_descriptor *desc,
+    struct quark_dentry *dentry,
+    uint8_t *buffer,
+    uint32_t size,
+    uint32_t offset );
 
 #endif // MACHINA_QUARK_H

@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fat32.h>
-#include <fat32_ui.h>
 #include <quark.h>
 
 
@@ -11,7 +9,13 @@ int main(int argc, char **argv)
     struct storage_device device;
     device_open(&device, "test.quark");
 
+#if 0
     quark_format(&device, 64 * 1024 * 1024);
+#else
+    struct quark_descriptor desc;
+    quark_mount(&desc, &device);
+    quark_list_root(&desc);
+#endif
 
     device_close(&device);
 
