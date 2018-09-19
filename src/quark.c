@@ -83,65 +83,57 @@ int quark_format(
     struct storage_device *device,
     uint32_t diskSize )
 {
-    uint8_t sector[512];
-    memset(sector, 0, sizeof(sector));
-    struct quark_superblock *sb = (struct quark_superblock *) &sector;
-
     static const uint32_t SECTOR_SIZE = 512;
     static const uint32_t CLUSTER_SIZE = 1024;
 
+    uint8_t sector[SECTOR_SIZE];
+    memset(sector, 0, sizeof(sector));
+    struct quark_superblock *sb = (struct quark_superblock *) &sector;
+
     //                              table estimative     sector 0
-    uint32_t clusters = (diskSize - (diskSize / 256) - SECTOR_SIZE) / CLUSTER_SIZE;
+    uint32_t clusters = (diskSize - CLUSTER_SIZE) / CLUSTER_SIZE;
 
     // write superblock
     sb->signature      = MFS_SB_SIGNATURE;
     sb->version        = MFS_SB_VERSION;
+    sb->bitmap_offset  = 1;
+    sb->bitmap_sectors = clusters / 8 / SECTOR_SIZE + 1;
     sb->sector_size    = (uint16_t) SECTOR_SIZE;
     sb->cluster_size   = (uint16_t) CLUSTER_SIZE;
-    sb->cluster_count  = clusters;
-    sb->table_offset   = 1;
-    sb->table_sectors  = (uint16_t) (((clusters * sizeof(uint32_t) + (SECTOR_SIZE-1)) & (~(SECTOR_SIZE-1))) / SECTOR_SIZE);
-    sb->bitmap_offset  = 0;
-    sb->bitmap_sectors = 0;
+    sb->cluster_count  = clusters - ALIGN_X(sb->bitmap_sectors, CLUSTER_SIZE / SECTOR_SIZE);
+    sb->indirect_size  = CLUSTER_SIZE;
     sb->root_offset    = 1;
+    sb->data_offset    = sb->bitmap_offset + sb->bitmap_sectors;
     strcpy((char*) sb->label, "MACHINA");
     device_write(device, 0, sector);
     // print superblock
     printSuperblock(sb);
     device_write(device, 0, sector);
 
-    uint16_t tableSectors = sb->table_sectors;
-    uint16_t tableOffset  = sb->table_offset;
+    uint16_t bitmapSectors = sb->bitmap_sectors;
+    uint16_t bitmapOffset  = sb->bitmap_offset;
     sb = NULL;
 
-    // write table
+    // write the bitmap
     memset(sector, 0, sizeof(sector));
-    uint32_t *table = (uint32_t*) sector;
-    table[1] = QC_EOF; // only one cluster for root directory
-    device_write(device, tableOffset, sector);
-    table[1] = QC_FREE;
-    for (size_t i = 1; i < tableSectors; ++i)
-        device_write(device, (uint32_t) i + tableOffset, sector);
-    table = NULL;
+    uint32_t *bitmap = (uint32_t*) sector;
+    bitmap[0] = 0x00000001; // only one cluster for root directory
+    device_write(device, bitmapOffset, sector);
+    bitmap[0] = 0;
+    for (size_t i = 1; i < bitmapSectors; ++i)
+        device_write(device, (uint32_t) i + bitmapOffset, sector);
+    bitmap = NULL;
 
     // clean root directory cluster
-    uint32_t dataOffset = (uint32_t) tableOffset + (uint32_t) tableSectors;
+    uint32_t dataOffset = (uint32_t) bitmapOffset + (uint32_t) bitmapSectors;
     memset(sector, 0, sizeof(sector));
     for (uint32_t i = 0; i < CLUSTER_SIZE / SECTOR_SIZE; ++i)
         device_write(device, i + dataOffset, sector);
     // write root directory
     struct quark_dentry *dentry = (struct quark_dentry*) sector;
-    dentry->name_hash = quark_hash( (const uint8_t*)".", 1);
+    dentry->name_hash = quark_hash( (const uint8_t*)"test.txt", 1);
     dentry->bits = S_IRUSR | S_IXUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
-    dentry->bits |= AT_DIRECTORY;
-    dentry->name[0] = '.';
-    dentry->write_time = time(NULL);
-    //device_write(device, dataOffset, sector);
-
-    dentry++;
-    dentry->name_hash = quark_hash( (const uint8_t*)".", 1);
-    dentry->bits = S_IRUSR | S_IXUSR | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
-    dentry->bits |= AT_DIRECTORY;
+    dentry->bits |= AT_REGULAR;
     dentry->write_time = time(NULL);
     strcpy(dentry->name, "test.txt");
 
@@ -161,12 +153,10 @@ int quark_mount(
     device_read(device, 0, buffer);
     memcpy(&desc->super, buffer, sizeof(struct quark_superblock));
 
-    uint32_t tableSectors = (uint32_t) (ALIGN_X(desc->super.cluster_count * sizeof(uint32_t), desc->super.sector_size) / desc->super.sector_size);
-    desc->bitmap = desc->table = NULL;
     desc->device = device;
-    desc->data_offset = tableSectors + desc->super.table_offset;
+    desc->data_offset = desc->super.data_offset;
 
-    desc->table = (uint32_t*) malloc( (size_t) desc->super.table_sectors * (size_t) desc->super.sector_size);
+    desc->bitmap = (uint32_t*) malloc( (size_t) desc->super.bitmap_sectors * (size_t) desc->super.sector_size);
 
     return 0;
 }
@@ -179,7 +169,7 @@ int quark_umount(
     return 0;
 }
 
-
+/*
 int quark_next_cluster(
     const struct quark_descriptor *desc,
     uint32_t cluster,
@@ -194,20 +184,20 @@ int quark_next_cluster(
 
     *next = desc->table[cluster];
     return 0;
-}
+}*/
 
 
 int quark_create_iterator(
     struct dentry_iterator *it,
     struct quark_descriptor *desc,
-    uint32_t cluster,
+    struct quark_dentry *parent,
     uint32_t flags )
 {
-    it->fileNameLen = (uint16_t) 12; // 4 bytes aligned
-    it->buffer = (uint8_t*) malloc(desc->super.cluster_size + it->fileNameLen);
+    it->buffer = (uint8_t*) malloc(desc->super.cluster_size + QD_MAX_NAME + 1);
     if (it->buffer == NULL) return 1;
     it->fileName = (char*) it->buffer + desc->super.cluster_size;
-    it->cluster = cluster;
+    it->parent = parent;
+    it->cluster = parent->slots[0].pointer;
     it->offset = 0;
     it->desc = desc;
     it->flags = flags;
@@ -221,10 +211,9 @@ int quark_create_iterator(
     return 0;
 }
 
-
+/*
 int quark_reset_iterator(
-    struct dentry_iterator *it,
-    uint32_t cluster )
+    struct dentry_iterator *it )
 {
     it->fileName[0] = 0;
     it->cluster = cluster;
@@ -236,7 +225,7 @@ int quark_reset_iterator(
         return 1;
     }
     return 0;
-}
+}*/
 
 
 int quark_destroy_iterator(
@@ -253,6 +242,24 @@ int quark_destroy_iterator(
 }
 
 
+int quark_next_iteration(
+    struct dentry_iterator *it )
+{
+    for (size_t i = 1; i < QD_DIR_SLOTS; ++i)
+    {
+        if (it->parent->slots[i - 1].pointer == it->cluster)
+        {
+            it->cluster = it->parent->slots[i].pointer;
+            quark_read_cluster(it->desc, it->cluster, it->buffer, it->desc->super.cluster_size);
+            return 0;
+        }
+    }
+
+    it->cluster = 0;
+    return 1;
+}
+
+
 int quark_iterate(
     struct dentry_iterator *it,
     struct quark_dentry **dentry,
@@ -265,10 +272,8 @@ int quark_iterate(
 
         if (it->offset >= it->desc->super.cluster_size)
         {
-            it->offset = 0;
-            it->cluster = it->desc->table[it->cluster];
-            if (!IS_VALID_CLUSTER(it->desc, it->cluster)) return 1;
-            quark_read_cluster(it->desc, it->cluster, it->buffer, it->desc->super.cluster_size);
+            it->offset -= it->desc->super.cluster_size;
+            quark_next_iteration(it);
         }
 
         struct quark_dentry *entries = (struct quark_dentry *) it->buffer;
@@ -305,11 +310,11 @@ int quark_iterate(
 
 static int quark_list_dentry(
     struct quark_descriptor *desc,
-    uint32_t cluster,
-    const char *parent )
+    struct quark_dentry *parent,
+    const char *path )
 {
     struct dentry_iterator it;
-    quark_create_iterator(&it, desc, cluster, 0);
+    quark_create_iterator(&it, desc, parent, 0);
 
     struct quark_dentry *dentry = NULL;
     const char *fileName = NULL;
@@ -317,20 +322,20 @@ static int quark_list_dentry(
     while (quark_iterate(&it, &dentry, &fileName) == 0)
     {
         #ifdef FAT32_ENABLE_HASH
-        printf("[0x%04x] [0x%04x] %s/%s\n", fat32_hash(dentry->msdos.name), dentry->msdos.hash, parent, fileName);
+        printf("[0x%04x] [0x%04x] %s/%s\n", fat32_hash(dentry->msdos.name), dentry->msdos.hash, path, fileName);
         #else
-        printf("%s/%s\n", parent, fileName);
+        printf("%s/%s\n", path, fileName);
         #endif
 
         // if the current entry is a directory, recusively list its files
         if (dentry->bits & AT_DIRECTORY)
         {
             char current[256] = { 0 };
-            strcpy(current, parent);
+            strcpy(current, path);
             strcat(current, "/");
             strcat(current, fileName);
 
-            quark_list_dentry(desc, dentry->slots[0].pointer, current);
+            quark_list_dentry(desc, dentry, current);
         }
     }
 
@@ -342,6 +347,7 @@ static int quark_list_dentry(
 int quark_list_root(
     struct quark_descriptor *desc )
 {
+
     return quark_list_dentry(desc, desc->super.root_offset, "");
 }
 
@@ -393,7 +399,7 @@ int quark_lookup(
                 if (*path != 0)
                 {
                     // go to next cluster
-                    quark_reset_iterator(&it, ptr->slots[0].pointer);
+                    quark_next_iteration(&it);
                 }
                 else
                 {

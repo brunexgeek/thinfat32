@@ -222,8 +222,8 @@ static struct fuse_operations operations = {
 
 int main( int argc, char *argv[] )
 {
-    printf("struct struct quark_superblock is %d bytes \n", sizeof(struct struct quark_superblock));
-    return 0;
+    /*printf("struct struct quark_superblock is %d bytes \n", sizeof(struct quark_superblock));
+    return 0;*/
     struct storage_device device;
     device_open(&device, "test.quark");
 

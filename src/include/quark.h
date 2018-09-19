@@ -50,7 +50,7 @@ struct quark_superblock
     /* 36 */ uint32_t root_offset;       // cluster in which the root directory starts
     /* 40 */ uint8_t  label[24];         // UTF-8 volume label (NULL-terminated if smaller than 24)
     /* 64 */ uint32_t data_offset;       // sector in which the data clusters start (1K aligned)
-    /* 60 */ uint8_t  reserved3[60];
+    /* 60 */ uint8_t  reserved3[64];
 };
 
 
@@ -76,6 +76,7 @@ struct quark_indirect
 #define QD_DIR_SLOTS   4
 #define QD_IND_SLOTS   2 // first with one level; second with two levels
 #define QD_MAX_SLOTS   (QD_DIR_SLOTS + QD_IND_SLOTS)
+#define QD_MAX_NAME    29
 
 
 struct quark_slot
@@ -95,7 +96,7 @@ struct quark_dentry
     /*  96 */ uint32_t reserved;
     /* 100 */ uint16_t name_hash;  // hash of the entire file name
     /* 102 */ uint8_t  name_length;
-    /* 103 */ uint8_t  name[29];   // UTF-8 file name (NULL-terminated if smaller than 29)
+    /* 103 */ uint8_t  name[QD_MAX_NAME];   // UTF-8 file name (NULL-terminated if smaller than QD_MAX_NAME)
 };
 
 
@@ -105,7 +106,6 @@ struct quark_dentry
 struct quark_descriptor
 {
     struct quark_superblock super;
-    uint32_t *table;
     uint32_t *bitmap;
     struct storage_device *device;
     uint32_t data_offset;
@@ -118,12 +118,12 @@ struct quark_descriptor
  */
 struct dentry_iterator
 {
+    struct quark_dentry *parent;
 	uint32_t cluster;
 	uint32_t offset;
 	struct quark_descriptor *desc;
 	uint8_t *buffer;
-	char *fileName;
-	uint16_t fileNameLen;
+	char *fileName;  // with QD_MAX_NAME + 1 bytes
 	uint32_t flags;
 };
 
@@ -177,15 +177,13 @@ int quark_mount(
 int quark_umount(
 	struct quark_descriptor *desc );
 
-int quark_next_cluster(
-    const struct quark_descriptor *desc,
-    uint32_t cluster,
-    uint32_t *next );
+int quark_next_iteration(
+    struct dentry_iterator *it );
 
 int quark_create_iterator(
     struct dentry_iterator *it,
     struct quark_descriptor *desc,
-    uint32_t cluster,
+    struct quark_dentry *parent,
     uint32_t flags );
 
 int quark_reset_iterator(
