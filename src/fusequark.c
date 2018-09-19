@@ -145,10 +145,10 @@ static int do_readdir(
             return -ENOENT;
         }
 
-        cluster = dentry.cluster;
+        cluster = dentry.slots[0].pointer;
         if (cluster == 0 || cluster >= QC_BAD)
         {
-            printf("readdir: '%s' points to invalud cluster\n", path );
+            printf("readdir: '%s' points to invalid cluster\n", path );
             return -ENOENT;
         }
     }
@@ -222,6 +222,8 @@ static struct fuse_operations operations = {
 
 int main( int argc, char *argv[] )
 {
+    printf("struct struct quark_superblock is %d bytes \n", sizeof(struct struct quark_superblock));
+    return 0;
     struct storage_device device;
     device_open(&device, "test.quark");
 

@@ -6,6 +6,34 @@
 #include <device.h>
 
 
+/**
+ * Pointers are divide in two parts: 29-bits for the cluster
+ * index and 3-bits for the number of sequential clusters.
+ */
+#define QUARK_CLT_MASK          0x1FFFFFFF   // 29-bits
+#define QUARK_SEQ_MASK          0xE0000000   // 3-bits
+#define QUARK_SEQ(x)            ( ((x) & QUARK_SEQ_MASK) >> 29 )
+
+/**
+ * Maximum indirect size. This limit is due the coverage
+ * counter, which is 16-bits. If the indirect size is bigger
+ * than 32K, the amount of clusters mapped in one indirect
+ * could not fit in a 16-bits field.
+ *
+ * indirect_entries = (cluster_size - 8) / 4
+ *
+ * In a fully fragmented file, a indirect can map up to
+ * 'indirect_entries' clusters (each entry maps to one cluster).
+ * This number of clusters fit easily in 16-bits. But if we have
+ * a lot of contiguous clusters (which we desire) each entry can
+ * map to 6 contiguous clusters.
+ *
+ * coverage = indirect_entries * 6
+ *
+ * The coverage field only affect the maximum file size.
+ */
+#define QUARK_MAX_INDIRECT_SIZE           32768
+
 
 struct quark_superblock
 {
@@ -16,37 +44,64 @@ struct quark_superblock
     /* 18 */ uint16_t sector_size;       // sector size in bytes (default to 512)
     /* 20 */ uint32_t cluster_count;     // number of clusters in data region
     /* 24 */ uint16_t cluster_size;      // cluster size in bytes (default to 1024)
-    /* 26 */ uint16_t table_offset;      // sector in which the table starts
-    /* 28 */ uint16_t table_sectors;     // number of sectors used by the table
+    /* 26 */ uint16_t indirect_size;     // sector in which the table starts
     /* 30 */ uint16_t bitmap_offset;     // sector in which the bitmap starts
     /* 32 */ uint16_t bitmap_sectors;    // number of sectors used by the bitmap
-    /* 34 */ uint16_t reserved1;
-    /* 36 */ uint32_t root_offset;       // cluster in whith the root directory starts
+    /* 36 */ uint32_t root_offset;       // cluster in which the root directory starts
     /* 40 */ uint8_t  label[24];         // UTF-8 volume label (NULL-terminated if smaller than 24)
-    /* 64 */ uint8_t  reserved2[64];
+    /* 64 */ uint32_t data_offset;       // sector in which the data clusters start (1K aligned)
+    /* 60 */ uint8_t  reserved3[60];
 };
 
+
+#define QI_SIGNATURE       0x5523FF32
+
+
+struct quark_indirect
+{
+    uint32_t signature;
+    uint16_t count;        // number of pointers
+    uint16_t reserved;
+    uint32_t coverage;     // how many clusters this indirect maps
+    uint32_t *pointers[];  // pointer array (out of the structure)
+};
+
+
 /**
- * Table size (in bytes) = cluster_count * 4 bytes
- *
- * Bitmap size (in bytes) = cluster_count / 8 bits
+ * Number of pointer slots. Each slot have a pointer
+ * to the next cluster (or level in the hierarchy) and
+ * a coverage. The coverage indicates the amount of
+ * file clusters this slot maps.
  */
+#define QD_DIR_SLOTS   4
+#define QD_IND_SLOTS   2 // first with one level; second with two levels
+#define QD_MAX_SLOTS   (QD_DIR_SLOTS + QD_IND_SLOTS)
+
+
+struct quark_slot
+{
+    uint32_t coverage;
+    uint32_t pointer;
+};
 
 
 struct quark_dentry
 {
-    /*  0 */ uint32_t size;       // effective file size
-    /*  4 */ uint32_t cluster;    // first cluster
-    /*  8 */ uint32_t write_time;
-    /* 12 */ uint16_t bits;       // permissions (9 bits) and flags (7 bits)
-    /* 14 */ uint16_t owner;      // 7 MSB for user, 9 LSB for group
-    /* 16 */ uint16_t name_hash;  // hash of the entire file name
-    /* 18 */ uint8_t  name_slots;
-    /* 19 */ uint8_t  reserved;
-    /* 20 */ uint8_t  name[12];   // UTF-8 file name (NULL-terminated if smaller than 12)
+    /*   0 */ uint32_t size;       // effective file size
+    /*   8 */ uint32_t write_time;
+    /*  12 */ uint16_t bits;       // permissions (9 bits) and flags (7 bits)
+    /*  14 */ uint16_t owner;      // 7 MSB for user, 9 LSB for group
+    /*  16 */ struct quark_slot slots[QD_MAX_SLOTS];
+    /*  96 */ uint32_t reserved;
+    /* 100 */ uint16_t name_hash;  // hash of the entire file name
+    /* 102 */ uint8_t  name_length;
+    /* 103 */ uint8_t  name[29];   // UTF-8 file name (NULL-terminated if smaller than 29)
 };
 
 
+/**
+ * High-level structure to represent a mounted Quark in memory.
+ */
 struct quark_descriptor
 {
     struct quark_superblock super;
@@ -58,6 +113,9 @@ struct quark_descriptor
 };
 
 
+/**
+ * High-level structure to represent a Quark directory iterator.
+ */
 struct dentry_iterator
 {
 	uint32_t cluster;

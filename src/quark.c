@@ -24,13 +24,12 @@ static void printSuperblock(
     printf("   Sector size: %u bytes\n", sb->sector_size);
     printf(" Cluster count: %u\n", sb->cluster_count);
     printf("  Cluster size: %u bytes\n", sb->cluster_size);
-    printf("  Table offset: sector %u\n", sb->table_offset);
-    printf(" Table sectors: %u\n", sb->table_sectors);
+    printf(" Indirect size: %u bytes\n", sb->indirect_size);
     printf(" Bitmap offset: sector %u\n", sb->bitmap_offset);
     printf("Bitmap sectors: %u\n", sb->bitmap_sectors);
     printf("   Root offset: cluster %u\n", sb->root_offset);
     printf("         Label: %.*s\n", ((sb->label[23] == 0) ? (int) strlen( (char*) sb->label ) : 24), (char*) sb->label);
-    printf("   Data offset: sector %u\n", sb->table_offset + sb->table_sectors);
+    printf("   Data offset: sector %u\n", sb->data_offset);
 }
 
 
@@ -331,7 +330,7 @@ static int quark_list_dentry(
             strcat(current, "/");
             strcat(current, fileName);
 
-            quark_list_dentry(desc, dentry->cluster, current);
+            quark_list_dentry(desc, dentry->slots[0].pointer, current);
         }
     }
 
@@ -394,7 +393,7 @@ int quark_lookup(
                 if (*path != 0)
                 {
                     // go to next cluster
-                    quark_reset_iterator(&it, ptr->cluster);
+                    quark_reset_iterator(&it, ptr->slots[0].pointer);
                 }
                 else
                 {
@@ -422,9 +421,11 @@ int quark_read(
     uint32_t size,
     uint32_t offset )
 {
+    return 1;
+    /*
     if (desc == NULL || dentry == NULL || buffer == NULL || size == 0) return 1;
 
-    uint32_t cluster = dentry->cluster;
+    uint32_t cluster = dentry->slots[0].pointer;
 
     size_t pending = QUARK_MIN(size, dentry->size);
     uint32_t jumps = (uint32_t) (offset / desc->super.cluster_size);
@@ -465,6 +466,6 @@ int quark_read(
     }
 
     free(page);
-	return (int) size;
+	return (int) size;*/
 }
 
