@@ -57,27 +57,23 @@ struct quark_superblock
 #define QI_SIGNATURE       0x5523FF32
 
 
+#if 1
+
+#define QI_BLOCK_MASK            0x0FFFFFFF  // bits used as block index
+#define QI_COUNT_MASK            0xF0000000  // bits used as block count
+#define QI_GET_BLOCK(x)          ( (x) & QI_BLOCK_MASK )
+#define QI_GET_COUNT(x)          ( ((x) & QI_COUNT_MASK) >> 28 )
+
 struct quark_indirect
 {
     uint32_t signature;
-    uint16_t count;        // number of pointers
-    uint16_t reserved;
-    uint32_t coverage;     // how many clusters this indirect maps
+    uint32_t count;        // number of pointers
+    uint32_t next;         // next block in which the indirect continues
+    uint32_t coverage;     // how many blocks this indirect maps
     uint32_t *pointers[];  // pointer array (out of the structure)
 };
 
-
-/**
- * Number of pointer slots. Each slot have a pointer
- * to the next cluster (or level in the hierarchy) and
- * a coverage. The coverage indicates the amount of
- * file clusters this slot maps.
- */
-#define QD_DIR_SLOTS   4
-#define QD_IND_SLOTS   2 // first with one level; second with two levels
-#define QD_MAX_SLOTS   (QD_DIR_SLOTS + QD_IND_SLOTS)
-#define QD_MAX_NAME    29
-
+#else
 
 struct quark_slot
 {
@@ -85,20 +81,68 @@ struct quark_slot
     uint32_t pointer;
 };
 
+struct quark_indirect
+{
+    uint32_t signature;
+    uint16_t count;                 // number of pointers
+    uint16_t reserved;
+    uint32_t coverage;             // how many clusters this indirect maps
+    struct quark_slot *pointers[];  // pointer array (out of the structure)
+};
+
+#endif
+
+
+/**
+ * Number of inode pointers. Each pointer have the index
+ * of the data block (or first block of a indirect) and
+ * the amount of sequential blocks from that index. Use
+ * QI_GET_BLOCK and QI_GET_COUNT macros to retrieve the
+ * desired information.
+ */
+#define QD_DIR_SLOTS   4
+#define QD_IND_SLOTS   1
+#define QD_MAX_SLOTS   (QD_DIR_SLOTS + QD_IND_SLOTS)
+
+
+struct quark_inode
+{
+    /*   0 */ uint32_t size;       // effective file size
+    /*   4 */ uint32_t write_time;
+    /*   8 */ uint16_t bits;       // permissions (9 bits) and flags (7 bits)
+    /*  10 */ uint16_t owner;      // 7 MSB for user, 9 LSB for group
+    /*  12 */ uint32_t pointers[QD_MAX_SLOTS];
+    /*  32 */
+};
+
+
+#if 1
+
+struct quark_dentry
+{
+    /*  0 */ uint32_t inode;
+    /*  4 */ uint16_t name_hash;  // hash of the entire file name
+    /*  6 */ uint8_t  name_length;
+    /*  7 */ uint8_t  name[25];   // UTF-8 file name (NULL-terminated if smaller than 25)
+    /* 32 */
+};
+
+#else
 
 struct quark_dentry
 {
     /*   0 */ uint32_t size;       // effective file size
-    /*   8 */ uint32_t write_time;
-    /*  12 */ uint16_t bits;       // permissions (9 bits) and flags (7 bits)
-    /*  14 */ uint16_t owner;      // 7 MSB for user, 9 LSB for group
-    /*  16 */ struct quark_slot slots[QD_MAX_SLOTS];
-    /*  96 */ uint32_t reserved;
-    /* 100 */ uint16_t name_hash;  // hash of the entire file name
-    /* 102 */ uint8_t  name_length;
-    /* 103 */ uint8_t  name[QD_MAX_NAME];   // UTF-8 file name (NULL-terminated if smaller than QD_MAX_NAME)
+    /*   4 */ uint32_t write_time;
+    /*   8 */ uint16_t bits;       // permissions (9 bits) and flags (7 bits)
+    /*  10 */ uint16_t owner;      // 7 MSB for user, 9 LSB for group
+    /*  12 */ struct quark_slot slots[QD_MAX_SLOTS];
+    /*  92 */ uint32_t reserved;
+    /*  96 */ uint16_t name_hash;  // hash of the entire file name
+    /*  98 */ uint8_t  name_length;
+    /*  99 */ uint8_t  name[29];   // UTF-8 file name (NULL-terminated if smaller than 29)
 };
 
+#endif
 
 /**
  * High-level structure to represent a mounted Quark in memory.
