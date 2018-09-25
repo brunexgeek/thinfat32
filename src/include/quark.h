@@ -34,23 +34,36 @@
  */
 #define QUARK_MAX_INDIRECT_SIZE           32768
 
+/**
+ * Limit the amount of inodes to ensure the inode bitmap
+ * will have at most 1MiB.
+ */
+#define QUARK_MAX_INODES                  (1024 * 1024 * 8)
+
+#define QUARK_MAX_BLOCKS                  0x0FFFFFFF  // 2^28-1
+
+#define QUARK_ROOT_INODE                  1
 
 struct quark_superblock
 {
-    /*  0 */ uint32_t signature;
-    /*  4 */ uint32_t hash;              // hash of the superblock data
-    /*  8 */ uint8_t  serial[8];         // partition serial number
-    /* 16 */ uint16_t version;           // file system version
-    /* 18 */ uint16_t sector_size;       // sector size in bytes (default to 512)
-    /* 20 */ uint32_t cluster_count;     // number of clusters in data region
-    /* 24 */ uint16_t cluster_size;      // cluster size in bytes (default to 1024)
-    /* 26 */ uint16_t indirect_size;     // sector in which the table starts
-    /* 30 */ uint16_t bitmap_offset;     // sector in which the bitmap starts
-    /* 32 */ uint16_t bitmap_sectors;    // number of sectors used by the bitmap
-    /* 36 */ uint32_t root_offset;       // cluster in which the root directory starts
-    /* 40 */ uint8_t  label[24];         // UTF-8 volume label (NULL-terminated if smaller than 24)
-    /* 64 */ uint32_t data_offset;       // sector in which the data clusters start (1K aligned)
-    /* 60 */ uint8_t  reserved3[64];
+    /*   0 */ uint32_t signature;
+    /*   4 */ uint32_t hash;              // hash of the superblock data
+    /*   8 */ uint8_t  serial[8];         // partition serial number
+    /*  16 */ uint16_t version;           // file system version
+    /*  18 */ uint16_t sector_size;       // sector size in bytes (default to 512)
+    /*  20 */ uint32_t block_count;       // number of blocks in data area
+    /*  24 */ uint16_t block_size;        // block size in bytes (default to 1024)
+    /*  26 */ uint16_t indirect_size;     // indirect size in bytes (default to 1024)
+    /*  28 */ uint32_t inode_offset;      // sector in which the inode area begins
+    /*  32 */ uint32_t inode_sectors;     // number of sectors used by the inode area
+    /*  36 */ uint32_t inode_count;       // total number of inodes
+    /*  40 */ uint32_t bitmap_offset;     // sector in which the bitmap begins
+    /*  44 */ uint32_t bitmap_sectors;    // number of sectors used by the bitmap
+    /*  48 */ uint8_t  label[14];         // UTF-8 volume label (padded with NULL if shorter than 14)
+    /*  62 */ uint32_t data_offset;       // sector in which the data clusters start (1K aligned)
+    /*  66 */ uint8_t  os_name[8];        // operating system name (padded with NULL if shorter than 8)
+    /*  74 */ uint8_t  reserved3[54];
+    /* 128 */
 };
 
 
@@ -121,9 +134,9 @@ struct quark_inode
 struct quark_dentry
 {
     /*  0 */ uint32_t inode;
-    /*  4 */ uint16_t name_hash;  // hash of the entire file name
+    /*  4 */ uint16_t name_hash;    // hash of the entire file name
     /*  6 */ uint8_t  name_length;
-    /*  7 */ uint8_t  name[25];   // UTF-8 file name (NULL-terminated if smaller than 25)
+    /*  7 */ uint8_t  name[25];     // UTF-8 file name (padded with NULL if smaller than 25)
     /* 32 */
 };
 
@@ -152,8 +165,9 @@ struct quark_descriptor
     struct quark_superblock super;
     uint32_t *bitmap;
     struct storage_device *device;
-    uint32_t data_offset;
-    uint32_t sector_per_cluster;
+    uint32_t sector_per_block;
+    uint32_t inode_bitmap_size;  // size of inode bitmap in bytes
+    uint32_t inode_first_offset; // sector of the first inode
 };
 
 
@@ -162,8 +176,8 @@ struct quark_descriptor
  */
 struct dentry_iterator
 {
-    struct quark_dentry *parent;
-	uint32_t cluster;
+    struct quark_inode *inode;
+    struct quark_indirect *indirect;
 	uint32_t offset;
 	struct quark_descriptor *desc;
 	uint8_t *buffer;
@@ -172,10 +186,10 @@ struct dentry_iterator
 };
 
 
-#define QC_FREE      0x00000000
-#define QC_BAD       0x0FFFFFFD
-#define QC_DELETE    0x0FFFFFFE
-#define QC_EOF       0x0FFFFFFF
+#define QUARK_STATE_FREE      0x00
+#define QUARK_STATE_BAD       0x01
+#define QUARK_STATE_DELETE    0x02
+#define QUARK_STATE_SYSTEM    0x03
 
 #define S_IRUSR 0400
 #define S_IWUSR 0200

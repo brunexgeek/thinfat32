@@ -22,12 +22,11 @@ static void printSuperblock(
         printf(" %02X", (int) sb->serial[i]);
     printf("\n       Version: %u.%u\n", sb->version >> 8, sb->version & 0xFF );
     printf("   Sector size: %u bytes\n", sb->sector_size);
-    printf(" Cluster count: %u\n", sb->cluster_count);
-    printf("  Cluster size: %u bytes\n", sb->cluster_size);
+    printf("   Block count: %u\n", sb->block_count);
+    printf("    Block size: %u bytes\n", sb->block_size);
     printf(" Indirect size: %u bytes\n", sb->indirect_size);
     printf(" Bitmap offset: sector %u\n", sb->bitmap_offset);
     printf("Bitmap sectors: %u\n", sb->bitmap_sectors);
-    printf("   Root offset: cluster %u\n", sb->root_offset);
     printf("         Label: %.*s\n", ((sb->label[23] == 0) ? (int) strlen( (char*) sb->label ) : 24), (char*) sb->label);
     printf("   Data offset: sector %u\n", sb->data_offset);
 }
@@ -62,13 +61,13 @@ int quark_read_cluster(
     uint8_t *buffer,
     size_t size )
 {
-    if (desc == NULL || buffer == NULL || size != desc->super.cluster_size) return 1;
+    if (desc == NULL || buffer == NULL || size != desc->super.block_size) return 1;
     if (!IS_VALID_CLUSTER(desc, cluster)) return 1;
 
     uint32_t sector = FIRST_SECTOR(desc, cluster);
 
     size_t i = 0;
-    for (; i < desc->super.cluster_size / desc->super.sector_size; ++i)
+    for (; i < desc->super.block_size / desc->super.sector_size; ++i)
     {
         device_read(desc->device, (uint32_t) (sector + i), buffer + i * desc->super.sector_size);
     }
@@ -99,7 +98,7 @@ int quark_format(
     sb->bitmap_offset  = 1;
     sb->bitmap_sectors = clusters / 8 / SECTOR_SIZE + 1;
     sb->sector_size    = (uint16_t) SECTOR_SIZE;
-    sb->cluster_size   = (uint16_t) CLUSTER_SIZE;
+    sb->block_size   = (uint16_t) CLUSTER_SIZE;
     sb->cluster_count  = clusters - ALIGN_X(sb->bitmap_sectors, CLUSTER_SIZE / SECTOR_SIZE);
     sb->indirect_size  = CLUSTER_SIZE;
     sb->root_offset    = 1;
@@ -193,16 +192,16 @@ int quark_create_iterator(
     struct quark_dentry *parent,
     uint32_t flags )
 {
-    it->buffer = (uint8_t*) malloc(desc->super.cluster_size + QD_MAX_NAME + 1);
+    it->buffer = (uint8_t*) malloc(desc->super.block_size + QD_MAX_NAME + 1);
     if (it->buffer == NULL) return 1;
-    it->fileName = (char*) it->buffer + desc->super.cluster_size;
+    it->fileName = (char*) it->buffer + desc->super.block_size;
     it->parent = parent;
     it->cluster = parent->slots[0].pointer;
     it->offset = 0;
     it->desc = desc;
     it->flags = flags;
 
-    if (quark_read_cluster(it->desc, it->cluster, it->buffer, it->desc->super.cluster_size) != 0)
+    if (quark_read_cluster(it->desc, it->cluster, it->buffer, it->desc->super.block_size) != 0)
     {
         quark_destroy_iterator(it);
         return 1;
@@ -219,7 +218,7 @@ int quark_reset_iterator(
     it->cluster = cluster;
     it->offset = 0;
 
-    if (quark_read_cluster(it->desc, it->cluster, it->buffer, it->desc->super.cluster_size) != 0)
+    if (quark_read_cluster(it->desc, it->cluster, it->buffer, it->desc->super.block_size) != 0)
     {
         quark_destroy_iterator(it);
         return 1;
@@ -250,7 +249,7 @@ int quark_next_iteration(
         if (it->parent->slots[i - 1].pointer == it->cluster)
         {
             it->cluster = it->parent->slots[i].pointer;
-            quark_read_cluster(it->desc, it->cluster, it->buffer, it->desc->super.cluster_size);
+            quark_read_cluster(it->desc, it->cluster, it->buffer, it->desc->super.block_size);
             return 0;
         }
     }
@@ -270,15 +269,15 @@ int quark_iterate(
 
     do {
 
-        if (it->offset >= it->desc->super.cluster_size)
+        if (it->offset >= it->desc->super.block_size)
         {
-            it->offset -= it->desc->super.cluster_size;
+            it->offset -= it->desc->super.block_size;
             quark_next_iteration(it);
         }
 
         struct quark_dentry *entries = (struct quark_dentry *) it->buffer;
 
-        for (size_t i = it->offset / QUARK_DENTRY_SIZE; i < it->desc->super.cluster_size / QUARK_DENTRY_SIZE; ++i)
+        for (size_t i = it->offset / QUARK_DENTRY_SIZE; i < it->desc->super.block_size / QUARK_DENTRY_SIZE; ++i)
         {
             it->offset += QUARK_DENTRY_SIZE;
             // check whether we reached the end of the list
@@ -362,7 +361,7 @@ int quark_lookup(
 
     char component[QUARK_MAX_NAME];
 
-    uint8_t *buffer = (uint8_t*) malloc(desc->super.cluster_size);
+    uint8_t *buffer = (uint8_t*) malloc(desc->super.block_size);
     if (buffer == NULL) return 1;
 
     uint32_t cluster = desc->super.root_offset; // start from root directory
@@ -434,7 +433,7 @@ int quark_read(
     uint32_t cluster = dentry->slots[0].pointer;
 
     size_t pending = QUARK_MIN(size, dentry->size);
-    uint32_t jumps = (uint32_t) (offset / desc->super.cluster_size);
+    uint32_t jumps = (uint32_t) (offset / desc->super.block_size);
     while (jumps > 0)
     {
         if (quark_next_cluster(desc, cluster, &cluster) != 0)
@@ -445,22 +444,22 @@ int quark_read(
     }
 
     // compute the offset within the current cluster
-    offset = offset - jumps * desc->super.cluster_size;
+    offset = offset - jumps * desc->super.block_size;
     // buffer for a cluster in memory
-    uint8_t *page = (uint8_t*) malloc(desc->super.cluster_size);
+    uint8_t *page = (uint8_t*) malloc(desc->super.block_size);
     if (page == NULL) return 0;
 
     uint8_t *ptr = (uint8_t*) buffer;
     while (pending > 0)
     {
         // read the current cluster
-        if (quark_read_cluster(desc, cluster, page, desc->super.cluster_size) != 0)
+        if (quark_read_cluster(desc, cluster, page, desc->super.block_size) != 0)
         {
             free(page);
             return 0;
         }
         // copy some data
-        size_t rs = (size_t) QUARK_MIN(pending, desc->super.cluster_size - (uint32_t) offset);
+        size_t rs = (size_t) QUARK_MIN(pending, desc->super.block_size - (uint32_t) offset);
         memcpy(ptr, page + offset, rs);
         printf("read %u bytes from cluster #%u (%u pending)\n", (uint32_t) rs, cluster, (uint32_t) pending);
         // update counters
